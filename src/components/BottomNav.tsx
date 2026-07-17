@@ -5,6 +5,7 @@ const TABS = [
   { href: "/log", label: "Log", icon: "✎" },
   { href: "/history", label: "History", icon: "☰" },
   { href: "/workout", label: "Workout", icon: "▣" },
+  { href: "/coach", label: "Coach", icon: "✦" },
 ];
 
 export function BottomNav({ active }: { active: string }) {

@@ -42,11 +42,17 @@ async function geminiGenerate(opts: GenerateOptions): Promise<string> {
     body.systemInstruction = { parts: [{ text: opts.system }] };
   }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  // One retry with backoff on transient overload (503) / rate limit (429).
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok || attempt >= 2 || (res.status !== 503 && res.status !== 429)) break;
+    await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)));
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
