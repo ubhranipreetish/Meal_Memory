@@ -143,6 +143,7 @@ function Macro({
   target: number;
   accent?: boolean;
 }) {
+  const over = consumed > target;
   const remaining = Math.max(0, target - consumed);
   const pct = target > 0 ? Math.min(100, (consumed / target) * 100) : 0;
   return (
@@ -152,14 +153,14 @@ function Macro({
       }`}
     >
       <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold">
-        {consumed.toLocaleString()}
-        <span className="text-sm font-normal text-neutral-400"> / {target.toLocaleString()} {unit}</span>
-      </div>
+      <div className="mt-1 text-xl font-semibold leading-tight">{consumed.toLocaleString()}</div>
+      <div className="whitespace-nowrap text-xs text-neutral-400">of {target.toLocaleString()} {unit}</div>
       <div className="mt-2 h-1.5 overflow-hidden rounded bg-neutral-200 dark:bg-neutral-800">
-        <div className="h-full rounded bg-emerald-500" style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded ${over ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-1 text-xs text-neutral-500">{remaining.toLocaleString()} {unit} left</div>
+      <div className={`mt-1 text-xs ${over ? "text-amber-500" : "text-neutral-500"}`}>
+        {over ? `${(consumed - target).toLocaleString()} ${unit} over` : `${remaining.toLocaleString()} ${unit} left`}
+      </div>
     </div>
   );
 }
