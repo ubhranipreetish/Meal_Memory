@@ -78,5 +78,6 @@ export const confirmLogSchema = z.object({
   waterMl: z.number().min(0).optional(),
   items: z.array(confirmItemSchema),
   inputMode: z.enum(["text", "voice", "photo", "quick_pick"]).default("text"),
+  photoPath: z.string().optional(),
 });
 export type ConfirmLogInput = z.infer<typeof confirmLogSchema>;

@@ -165,11 +165,29 @@ export async function resolveUtterance(userId: string, utterance: string): Promi
 
   // Path B: one AI call parses + estimates; memory overrides estimates.
   const parsed = await parseFoodUtterance(utterance);
-  const hits = await lookupAliases(userId, parsed.items.map((i) => i.name));
+  const items = await resolveParsedItems(userId, parsed.items);
 
-  const items: ResolvedItem[] = await Promise.all(
-    parsed.items.map(async (i) => {
-      // exact alias → fuzzy embedding match → new (RULES.md #5)
+  return {
+    raw: utterance,
+    mealType: parsed.mealType ?? inferMealType(),
+    waterMl: parsed.waterMl ?? undefined,
+    items,
+    needsConfirmation: items.some((i) => i.status === "new"),
+    zeroAi: false,
+  };
+}
+
+/**
+ * Resolve already-parsed items (from the text parser OR the photo analyzer)
+ * against food memory: exact alias → fuzzy embedding match → new (RULES.md #5).
+ */
+export async function resolveParsedItems(
+  userId: string,
+  parsedItems: import("@/types/food").ParsedItem[],
+): Promise<ResolvedItem[]> {
+  const hits = await lookupAliases(userId, parsedItems.map((i) => i.name));
+  return Promise.all(
+    parsedItems.map(async (i) => {
       const m = hits.get(i.name) ?? (await fuzzyLookup(userId, i.name));
       if (m) {
         return {
@@ -194,15 +212,6 @@ export async function resolveUtterance(userId: string, utterance: string): Promi
       };
     }),
   );
-
-  return {
-    raw: utterance,
-    mealType: parsed.mealType ?? inferMealType(),
-    waterMl: parsed.waterMl ?? undefined,
-    items,
-    needsConfirmation: items.some((i) => i.status === "new"),
-    zeroAi: false,
-  };
 }
 
 /**
@@ -290,6 +299,7 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
         mealType: input.mealType,
         rawInput: input.raw,
         inputMode: input.inputMode,
+        photoPath: input.photoPath ?? null,
       })
       .returning({ id: schema.mealLogs.id });
     mealLogId = log.id;

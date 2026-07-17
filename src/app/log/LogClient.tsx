@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import type { ResolvedLog } from "@/types/food";
 import { quickLogAction } from "@/app/history/actions";
-import { confirmAction, parseAction } from "./actions";
+import { confirmAction, parseAction, photoAction } from "./actions";
 
 interface FeedItem {
   id: string;
@@ -25,10 +25,74 @@ export function LogClient({ feed, recentFoods = [] }: { feed: FeedItem[]; recent
   const router = useRouter();
   const [text, setText] = useState("");
   const [pendingLog, setPendingLog] = useState<ResolvedLog | null>(null);
+  const [pendingPhotoPath, setPendingPhotoPath] = useState<string | undefined>(undefined);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
+  const [listening, setListening] = useState(false);
   const [busy, startTransition] = useTransition();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  /** Voice input (Sprint 4): Web Speech API fills the text box. */
+  function startVoice() {
+    type SR = { new (): {
+      lang: string; interimResults: boolean;
+      onresult: (e: { results: { [i: number]: { [j: number]: { transcript: string } } } }) => void;
+      onend: () => void; onerror: () => void; start: () => void;
+    } };
+    const w = window as unknown as { SpeechRecognition?: SR; webkitSpeechRecognition?: SR };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) {
+      setError("Voice input isn't supported in this browser — try Chrome.");
+      return;
+    }
+    const rec = new Ctor();
+    rec.lang = "en-IN";
+    rec.interimResults = false;
+    rec.onresult = (e) => setText(e.results[0][0].transcript);
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    setListening(true);
+    rec.start();
+  }
+
+  /** Photo input (Sprint 4): downscale client-side, then vision-analyze. */
+  function onPhotoPicked(file: File) {
+    setError(null);
+    setStatus("Reading photo…");
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 1024;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      const base64 = dataUrl.split(",")[1];
+      setStatus("Recognizing your meal… 📷");
+      startTransition(async () => {
+        const res = await photoAction(base64, "image/jpeg");
+        if (!res.ok) {
+          setError(`${res.error} — you can add it manually below.`);
+          setShowManual(true);
+          setStatus(null);
+          return;
+        }
+        if (res.resolved.items.length === 0) {
+          setStatus(null);
+          setError("Couldn't spot any food in that photo — try another angle or add manually.");
+          return;
+        }
+        setPendingPhotoPath(res.photoPath);
+        setPendingLog(res.resolved);
+        setStatus(null);
+      });
+    };
+    img.src = url;
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,12 +134,17 @@ export function LogClient({ feed, recentFoods = [] }: { feed: FeedItem[]; recent
   function confirmPending(edited: ResolvedLog) {
     setError(null);
     startTransition(async () => {
-      const c = await confirmAction(toConfirmPayload(edited));
+      const c = await confirmAction({
+        ...toConfirmPayload(edited),
+        photoPath: pendingPhotoPath,
+        inputMode: pendingPhotoPath ? ("photo" as const) : ("text" as const),
+      });
       if (!c.ok) {
         setError(c.error);
         return;
       }
       setPendingLog(null);
+      setPendingPhotoPath(undefined);
       setText("");
       setStatus("Saved to your food memory ✓ — next time it logs instantly");
       router.refresh();
@@ -91,6 +160,36 @@ export function LogClient({ feed, recentFoods = [] }: { feed: FeedItem[]; recent
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={busy || !!pendingLog}
+        />
+        <button
+          type="button"
+          aria-label="Log by voice"
+          className={`rounded-xl border px-3 text-lg ${listening ? "border-red-500 text-red-500" : "border-neutral-300 text-neutral-500 dark:border-neutral-700"}`}
+          onClick={startVoice}
+          disabled={busy || !!pendingLog}
+        >
+          {listening ? "●" : "🎤"}
+        </button>
+        <button
+          type="button"
+          aria-label="Log from photo"
+          className="rounded-xl border border-neutral-300 px-3 text-lg text-neutral-500 dark:border-neutral-700"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy || !!pendingLog}
+        >
+          📷
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onPhotoPicked(f);
+            e.target.value = "";
+          }}
         />
         <button
           className="rounded-xl bg-emerald-600 px-5 text-sm font-medium text-white disabled:opacity-50"
