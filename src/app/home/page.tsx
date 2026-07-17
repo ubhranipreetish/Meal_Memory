@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getDb, schema } from "@/lib/db";
 import { getTodayTotals } from "@/lib/services/foodMemory";
 import { workoutDoneToday } from "@/lib/services/workouts";
+import { getTodayBrief } from "@/lib/ai/coach";
 import { signOut } from "@/app/login/actions";
 import type { Targets } from "@/lib/services/targets";
 import { GOAL_LABELS } from "@/types/profile";
@@ -26,9 +27,10 @@ export default async function HomePage() {
 
   const today = new Date().toISOString().slice(0, 10);
   const t = profile.targets as Targets;
-  const [c, workoutDone, [weightRow], [stepsRow], [sleepRow]] = await Promise.all([
+  const [c, workoutDone, brief, [weightRow], [stepsRow], [sleepRow]] = await Promise.all([
     getTodayTotals(user.id),
     workoutDoneToday(user.id),
+    getTodayBrief(user.id),
     db.select().from(schema.weightLogs).where(and(eq(schema.weightLogs.userId, user.id), eq(schema.weightLogs.date, today))).limit(1),
     db.select().from(schema.stepsLogs).where(and(eq(schema.stepsLogs.userId, user.id), eq(schema.stepsLogs.date, today))).limit(1),
     db.select().from(schema.sleepLogs).where(and(eq(schema.sleepLogs.userId, user.id), eq(schema.sleepLogs.date, today))).limit(1),
@@ -47,6 +49,13 @@ export default async function HomePage() {
           Settings
         </Link>
       </header>
+
+      {brief && (
+        <Link href="/coach" className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-600">✦ Coach brief</div>
+          <p className="mt-1.5 line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed">{brief}</p>
+        </Link>
+      )}
 
       <section className="grid grid-cols-2 gap-3">
         <Macro label="Calories" unit="kcal" consumed={c.kcal} target={t.kcal} accent />
