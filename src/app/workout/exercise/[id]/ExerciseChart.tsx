@@ -42,7 +42,7 @@ export function ExerciseChart({ series }: { series: Point[] }) {
           <Line
             type="monotone"
             dataKey="topWeight"
-            stroke="#10b981"
+            stroke="#9cc716"
             strokeWidth={2}
             dot={({ cx, cy, payload, index }) => (
               <circle
@@ -50,7 +50,7 @@ export function ExerciseChart({ series }: { series: Point[] }) {
                 cx={cx}
                 cy={cy}
                 r={payload.hadPr ? 5 : 3}
-                fill={payload.hadPr ? "#f59e0b" : "#10b981"}
+                fill={payload.hadPr ? "#f59e0b" : "#9cc716"}
               />
             )}
           />

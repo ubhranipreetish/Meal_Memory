@@ -73,7 +73,7 @@ export function WorkoutClient({
     <div className="flex flex-col gap-5">
       {!active ? (
         <button
-          className="rounded-xl bg-emerald-600 px-5 py-3.5 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-xl bg-emerald-400 px-5 py-3.5 text-sm font-medium text-emerald-950 disabled:opacity-50"
           onClick={start}
           disabled={busy}
         >
@@ -270,7 +270,7 @@ function ActiveSessionPanel({
             />
           </label>
           <button
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
             onClick={addSet}
             disabled={busy || !weight || !reps}
           >

@@ -5,6 +5,7 @@
  */
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import type { MealType } from "@/types/food";
 
 const num = (v: string | null) => (v == null ? 0 : Number(v));
 
@@ -43,7 +44,7 @@ export async function searchHistory(userId: string, f: HistoryFilter = {}) {
     )
     select l.id as log_id, l.logged_at, l.meal_type, l.raw_input,
            i.id as item_id, i.food_memory_id, i.qty, i.unit, i.kcal, i.protein_g,
-           fm.canonical_name
+           coalesce(i.name, fm.canonical_name) as canonical_name
     from logs l
     left join meal_log_items i on i.meal_log_id = l.id
     left join food_memory fm on fm.id = i.food_memory_id
@@ -120,6 +121,7 @@ export async function listFoods(
     id: m.id,
     name: m.canonicalName,
     unit: m.servingUnit,
+    servingQty: Number(m.servingQty) || 1,
     kcal: Math.round(num(m.kcal)),
     proteinG: Math.round(num(m.proteinG)),
     timesLogged: m.timesLogged,
@@ -161,6 +163,7 @@ export async function relogMeal(userId: string, mealLogId: string) {
       userId,
       mealLogId: log.id,
       foodMemoryId: it.foodMemoryId,
+      name: it.name,
       qty: it.qty,
       unit: it.unit,
       kcal: it.kcal,
@@ -178,8 +181,11 @@ export async function relogMeal(userId: string, mealLogId: string) {
   return { mealLogId: log.id };
 }
 
-/** Log a single known food right now (quick-pick chip → one tap). */
-export async function quickLogFood(userId: string, foodMemoryId: string, qty = 1) {
+/**
+ * Log a single known food right now (quick-pick chip → one tap).
+ * Default qty is one serving of the food: 1 piece/bowl…, or 100 for g/ml foods.
+ */
+export async function quickLogFood(userId: string, foodMemoryId: string, qty?: number, mealType?: MealType) {
   const db = getDb();
   const now = new Date();
   const [m] = await db
@@ -189,14 +195,17 @@ export async function quickLogFood(userId: string, foodMemoryId: string, qty = 1
     .limit(1);
   if (!m) throw new Error("Food not found");
 
-  const { inferMealType } = await import("./foodMemory");
+  const perQty = Number(m.servingQty) || 1;
+  const q = qty ?? perQty;
+  const f = q / perQty;
+  const { suggestMealType } = await import("./foodMemory");
   const [log] = await db
     .insert(schema.mealLogs)
     .values({
       userId,
       loggedAt: now,
-      mealType: inferMealType(now),
-      rawInput: `${qty} ${m.servingUnit} ${m.canonicalName}`,
+      mealType: mealType ?? (await suggestMealType(userId, now)),
+      rawInput: `${q} ${m.servingUnit} ${m.canonicalName}`,
       inputMode: "quick_pick",
     })
     .returning({ id: schema.mealLogs.id });
@@ -205,12 +214,13 @@ export async function quickLogFood(userId: string, foodMemoryId: string, qty = 1
     userId,
     mealLogId: log.id,
     foodMemoryId: m.id,
-    qty: String(qty),
+    name: m.canonicalName,
+    qty: String(q),
     unit: m.servingUnit,
-    kcal: String(num(m.kcal) * qty),
-    proteinG: String(num(m.proteinG) * qty),
-    carbsG: String(num(m.carbsG) * qty),
-    fatG: String(num(m.fatG) * qty),
+    kcal: String(num(m.kcal) * f),
+    proteinG: String(num(m.proteinG) * f),
+    carbsG: String(num(m.carbsG) * f),
+    fatG: String(num(m.fatG) * f),
   });
   await db
     .update(schema.foodMemory)
@@ -237,6 +247,7 @@ export async function getFood(userId: string, foodId: string) {
     id: m.id,
     name: m.canonicalName,
     unit: m.servingUnit,
+    servingQty: Number(m.servingQty) || 1,
     kcal: num(m.kcal),
     proteinG: num(m.proteinG),
     carbsG: num(m.carbsG),

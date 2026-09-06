@@ -132,3 +132,63 @@ export function calcTargets(input: TargetInputs): Targets {
     steps: GOAL_STEPS[input.goal],
   };
 }
+
+// ── Goal suggestion from body stats (onboarding) ─────────────────────────────
+
+/** BMI = kg / m². Plain helper so the UI can show it alongside the suggestion. */
+export function calcBMI(heightCm: number, weightKg: number): number {
+  const m = heightCm / 100;
+  if (!(m > 0)) return 0;
+  return Math.round((weightKg / (m * m)) * 10) / 10;
+}
+
+export interface GoalSuggestion {
+  goal: Goal;
+  bmi: number;
+  /** Short, human reason shown under the pre-selected goal. */
+  reason: string;
+}
+
+/**
+ * Suggest a starting goal from age/gender/height/weight (WHO BMI bands, with
+ * an Asian-population-aware overweight cut-off of 23 since this app is built
+ * for Indian users). This is a *default*, never a lock — the user can override.
+ */
+export function suggestGoal(input: {
+  gender: Gender;
+  age: number;
+  heightCm: number;
+  weightKg: number;
+}): GoalSuggestion {
+  const bmi = calcBMI(input.heightCm, input.weightKg);
+
+  if (bmi === 0) {
+    return { goal: "general", bmi, reason: "Enter your height and weight for a tailored suggestion." };
+  }
+  if (bmi < 18.5) {
+    return {
+      goal: "build_muscle",
+      bmi,
+      reason: `Your BMI is ${bmi} (underweight), so building size and strength in a calorie surplus makes sense.`,
+    };
+  }
+  if (bmi < 23) {
+    return {
+      goal: "lean_bulk",
+      bmi,
+      reason: `Your BMI is ${bmi} (healthy range) — a lean bulk adds muscle while keeping fat gain slow.`,
+    };
+  }
+  if (bmi < 27.5) {
+    return {
+      goal: "recomp",
+      bmi,
+      reason: `Your BMI is ${bmi} (slightly above the healthy range) — recomposition builds muscle while losing fat.`,
+    };
+  }
+  return {
+    goal: "lose_fat",
+    bmi,
+    reason: `Your BMI is ${bmi}, so prioritising fat loss will have the biggest impact on your health.`,
+  };
+}

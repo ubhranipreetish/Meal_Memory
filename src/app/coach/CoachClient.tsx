@@ -60,7 +60,7 @@ export function CoachClient({ initialBrief }: { initialBrief: string | null }) {
             key={i}
             className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
               t.role === "user"
-                ? "self-end bg-emerald-600 text-white"
+                ? "self-end bg-emerald-400 text-emerald-950"
                 : "self-start border border-neutral-200 dark:border-neutral-800"
             }`}
           >
@@ -83,7 +83,7 @@ export function CoachClient({ initialBrief }: { initialBrief: string | null }) {
           onChange={(e) => setText(e.target.value)}
           disabled={busy}
         />
-        <button className="rounded-xl bg-emerald-600 px-5 text-sm font-medium text-white disabled:opacity-50" disabled={busy || !text.trim()}>
+        <button className="rounded-xl bg-emerald-400 px-5 text-sm font-medium text-emerald-950 disabled:opacity-50" disabled={busy || !text.trim()}>
           Ask
         </button>
       </form>

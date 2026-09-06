@@ -3,11 +3,12 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listFoods, searchHistory } from "@/lib/services/history";
 import { BottomNav } from "@/components/BottomNav";
+import { MEAL_TYPES, mealLabel } from "@/types/food";
 import { RelogButton } from "./RelogButton";
 
 export const dynamic = "force-dynamic";
 
-const MEAL_FILTERS = ["all", "breakfast", "lunch", "snack", "dinner"] as const;
+const MEAL_FILTERS = ["all", ...MEAL_TYPES] as const;
 
 export default async function HistoryPage({
   searchParams,
@@ -58,7 +59,7 @@ export default async function HistoryPage({
               placeholder="Search meals or foods…"
               className="flex-1 rounded-xl border border-neutral-300 bg-transparent px-4 py-2.5 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700"
             />
-            <button className="rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white">Search</button>
+            <button className="rounded-xl bg-emerald-400 px-4 text-sm font-medium text-emerald-950">Search</button>
           </form>
 
           <div className="flex flex-wrap gap-1.5">
@@ -66,13 +67,13 @@ export default async function HistoryPage({
               <Link
                 key={m}
                 href={qs({ meal: m })}
-                className={`rounded-full px-3 py-1 text-xs capitalize ${
+                className={`rounded-full px-3 py-1 text-xs ${
                   (params.meal ?? "all") === m
-                    ? "bg-emerald-600 text-white"
+                    ? "bg-emerald-400 text-emerald-950"
                     : "border border-neutral-300 text-neutral-500 dark:border-neutral-700"
                 }`}
               >
-                {m}
+                {m === "all" ? "All" : mealLabel(m)}
               </Link>
             ))}
           </div>
@@ -82,7 +83,7 @@ export default async function HistoryPage({
             {logs.map((l) => (
               <div key={l.id} className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
                 <div className="flex items-center justify-between text-xs text-neutral-500">
-                  <span className="capitalize">{l.mealType ?? "meal"} · {l.totalKcal} kcal</span>
+                  <span>{mealLabel(l.mealType)} · {l.totalKcal} kcal</span>
                   <span>
                     {l.loggedAt.toLocaleDateString([], { day: "numeric", month: "short" })}{" "}
                     {l.loggedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -131,14 +132,14 @@ export default async function HistoryPage({
 
 function tabCls(active: boolean) {
   return `rounded-lg px-4 py-1.5 text-sm font-medium ${
-    active ? "bg-emerald-600 text-white" : "border border-neutral-300 text-neutral-500 dark:border-neutral-700"
+    active ? "bg-emerald-400 text-emerald-950" : "border border-neutral-300 text-neutral-500 dark:border-neutral-700"
   }`;
 }
 
 function FoodList({
   foods,
 }: {
-  foods: { id: string; name: string; unit: string; kcal: number; proteinG: number; timesLogged: number; isFavorite: boolean }[];
+  foods: { id: string; name: string; unit: string; servingQty: number; kcal: number; proteinG: number; timesLogged: number; isFavorite: boolean }[];
 }) {
   if (foods.length === 0) return <p className="text-sm text-neutral-400">Nothing here yet.</p>;
   return (
@@ -154,7 +155,7 @@ function FoodList({
               {f.name}
               <span className="ml-1 text-xs text-neutral-400">×{f.timesLogged}</span>
             </span>
-            <span className="text-neutral-500">{f.kcal} kcal / {f.unit}</span>
+            <span className="text-neutral-500">{f.kcal} kcal / {f.servingQty > 1 ? `${f.servingQty} ` : ""}{f.unit}</span>
           </Link>
         </li>
       ))}

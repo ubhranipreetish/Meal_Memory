@@ -22,7 +22,6 @@ export const ACTIVITY_LEVELS = [
 ] as const;
 export const GYM_EXPERIENCE = ["beginner", "intermediate", "advanced"] as const;
 export const DIET_TYPES = ["veg", "eggetarian", "non_veg", "vegan"] as const;
-export const BUDGET_LEVELS = ["low", "medium", "high"] as const;
 
 export const GOAL_LABELS: Record<(typeof GOALS)[number], string> = {
   build_muscle: "Build muscle",
@@ -31,6 +30,19 @@ export const GOAL_LABELS: Record<(typeof GOALS)[number], string> = {
   recomp: "Body recomposition",
   athletic: "Athletic performance",
   general: "General fitness",
+};
+
+export const GYM_EXPERIENCE_LABELS: Record<(typeof GYM_EXPERIENCE)[number], string> = {
+  beginner: "Beginner — new to the gym",
+  intermediate: "Intermediate — training regularly",
+  advanced: "Advanced — years of training",
+};
+
+export const DIET_LABELS: Record<(typeof DIET_TYPES)[number], string> = {
+  veg: "Vegetarian",
+  eggetarian: "Eggetarian (veg + eggs)",
+  non_veg: "Non-vegetarian",
+  vegan: "Vegan",
 };
 
 export const ACTIVITY_LABELS: Record<(typeof ACTIVITY_LEVELS)[number], string> = {
@@ -49,11 +61,10 @@ export const onboardingSchema = z.object({
   weightKg: z.coerce.number().min(30).max(300),
   goal: z.enum(GOALS),
   activityLevel: z.enum(ACTIVITY_LEVELS),
-  gymExperience: z.enum(GYM_EXPERIENCE).optional(),
-  dietType: z.enum(DIET_TYPES).optional(),
+  gymExperience: z.enum(GYM_EXPERIENCE, { message: "Pick your gym experience" }),
+  dietType: z.enum(DIET_TYPES, { message: "Pick your diet" }),
   allergies: z.array(z.string()).optional(),
   foodsAvoided: z.array(z.string()).optional(),
-  budgetLevel: z.enum(BUDGET_LEVELS).optional(),
 });
 
 export type OnboardingInput = z.infer<typeof onboardingSchema>;

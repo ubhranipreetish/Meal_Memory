@@ -8,6 +8,7 @@ interface Food {
   id: string;
   name: string;
   unit: string;
+  servingQty: number;
   kcal: number;
   proteinG: number;
   carbsG: number;
@@ -54,7 +55,7 @@ export function FoodEditor({ food }: { food: Food }) {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-xl font-semibold">{food.name}</h1>
-          <p className="text-sm text-neutral-500">per 1 {food.unit}</p>
+          <p className="text-sm text-neutral-500">per {food.servingQty} {food.unit}</p>
         </div>
         <button
           className={`text-2xl ${food.isFavorite ? "text-amber-500" : "text-neutral-300 dark:text-neutral-700"}`}
@@ -89,7 +90,7 @@ export function FoodEditor({ food }: { food: Food }) {
 
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
       <button
-        className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+        className="mt-4 rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-40"
         onClick={save}
         disabled={pending || !dirty}
       >

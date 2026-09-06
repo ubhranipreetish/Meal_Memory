@@ -18,7 +18,7 @@ export default async function TimelinePage() {
   const events = (await db.execute(sql`
     select * from (
       select ml.logged_at as at, 'meal' as kind,
-             coalesce(ml.meal_type,'meal') || ': ' || ml.raw_input as label,
+             replace(coalesce(ml.meal_type,'meal'),'_',' ') || ': ' || ml.raw_input as label,
              round(sum(i.kcal))::int as value
       from meal_logs ml left join meal_log_items i on i.meal_log_id = ml.id
       where ml.user_id=${user.id} and ml.logged_at >= date_trunc('day', now())

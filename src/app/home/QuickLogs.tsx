@@ -105,7 +105,7 @@ function NumberQuick({
           onChange={(e) => setV(e.target.value)}
         />
         <button
-          className="rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white disabled:opacity-40"
+          className="rounded-lg bg-emerald-400 px-3 text-sm font-medium text-emerald-950 disabled:opacity-40"
           disabled={busy || !valid}
           onClick={() => { onSubmit(parsed); setV(""); }}
         >

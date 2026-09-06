@@ -64,7 +64,7 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
                 <YAxis tick={{ fontSize: 10 }} stroke="currentColor" opacity={0.5} domain={["dataMin - 1", "dataMax + 1"]} />
                 <Tooltip labelStyle={{ color: "#111" }} />
                 <Line type="monotone" dataKey="kg" stroke="#94a3b8" strokeWidth={1} dot={false} name="daily" />
-                <Line type="monotone" dataKey="trend" stroke="#10b981" strokeWidth={2.5} dot={false} name="7d trend" />
+                <Line type="monotone" dataKey="trend" stroke="#9cc716" strokeWidth={2.5} dot={false} name="7d trend" />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -81,7 +81,7 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
             </label>
           ))}
         </div>
-        <button className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" onClick={saveMeasurements} disabled={busy}>
+        <button className="mt-3 rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50" onClick={saveMeasurements} disabled={busy}>
           Save today&apos;s measurements
         </button>
         {measurements.length > 0 && (

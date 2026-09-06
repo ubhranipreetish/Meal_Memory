@@ -1,15 +1,16 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { calcTargets } from "@/lib/services/targets";
+import { calcTargets, suggestGoal } from "@/lib/services/targets";
 import {
   ACTIVITY_LABELS,
   ACTIVITY_LEVELS,
-  BUDGET_LEVELS,
+  DIET_LABELS,
   DIET_TYPES,
   GOAL_LABELS,
   GOALS,
   GYM_EXPERIENCE,
+  GYM_EXPERIENCE_LABELS,
   onboardingSchema,
 } from "@/types/profile";
 import { saveProfile } from "./actions";
@@ -26,7 +27,6 @@ type Form = {
   dietType: string;
   allergies: string;
   foodsAvoided: string;
-  budgetLevel: string;
 };
 
 const initial: Form = {
@@ -41,7 +41,6 @@ const initial: Form = {
   dietType: "",
   allergies: "",
   foodsAvoided: "",
-  budgetLevel: "",
 };
 
 const STEPS = ["Basics", "Goal & activity", "Preferences", "Your targets"];
@@ -49,6 +48,8 @@ const STEPS = ["Basics", "Goal & activity", "Preferences", "Your targets"];
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<Form>(initial);
+  // once the user picks a goal themselves we stop auto-suggesting
+  const [goalTouched, setGoalTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -61,6 +62,31 @@ export default function OnboardingPage() {
     if (!age || !heightCm || !weightKg) return null;
     return calcTargets({ gender: form.gender, age, heightCm, weightKg, activityLevel: form.activityLevel, goal: form.goal });
   }, [form]);
+
+  // Dynamic goal suggestion from age/gender/height/weight (recomputed live).
+  const suggestion = useMemo(() => {
+    const age = Number(form.age);
+    const heightCm = Number(form.heightCm);
+    const weightKg = Number(form.weightKg);
+    if (!age || !heightCm || !weightKg) return null;
+    return suggestGoal({ gender: form.gender, age, heightCm, weightKg });
+  }, [form.age, form.gender, form.heightCm, form.weightKg]);
+
+  /** Can the user leave the current step? (required fields per step) */
+  const canAdvance =
+    step === 0
+      ? !!form.name.trim() && !!suggestion
+      : step === 1
+        ? !!form.gymExperience
+        : step === 2
+          ? !!form.dietType
+          : true;
+
+  /** Advance a step; entering "Goal" pre-selects the suggestion unless the user already chose. */
+  function next() {
+    if (step === 0 && suggestion && !goalTouched) set("goal", suggestion.goal);
+    setStep((s) => s + 1);
+  }
 
   function submit() {
     setError(null);
@@ -76,7 +102,6 @@ export default function OnboardingPage() {
       dietType: form.dietType || undefined,
       allergies: form.allergies ? form.allergies.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
       foodsAvoided: form.foodsAvoided ? form.foodsAvoided.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
-      budgetLevel: form.budgetLevel || undefined,
     };
     const parsed = onboardingSchema.safeParse(payload);
     if (!parsed.success) {
@@ -127,10 +152,23 @@ export default function OnboardingPage() {
       {step === 1 && (
         <section className="flex flex-col gap-4">
           <Field label="Goal">
-            <select className={inputCls} value={form.goal} onChange={(e) => set("goal", e.target.value as Form["goal"])}>
+            <select
+              className={inputCls}
+              value={form.goal}
+              onChange={(e) => { setGoalTouched(true); set("goal", e.target.value as Form["goal"]); }}
+            >
               {GOALS.map((g) => <option key={g} value={g}>{GOAL_LABELS[g]}</option>)}
             </select>
           </Field>
+          {suggestion && (
+            <p className="-mt-2 rounded-xl border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-xs leading-relaxed text-neutral-600 dark:text-neutral-300">
+              {form.goal === suggestion.goal && !goalTouched ? (
+                <><span className="font-semibold text-emerald-600">Suggested for you:</span> {suggestion.reason}</>
+              ) : (
+                <><span className="font-semibold text-emerald-600">Heads up:</span> {suggestion.reason} You&apos;ve chosen {GOAL_LABELS[form.goal]} — that&apos;s fine, we&apos;ll build your targets around it.</>
+              )}
+            </p>
+          )}
           <Field label="Activity level">
             <select className={inputCls} value={form.activityLevel} onChange={(e) => set("activityLevel", e.target.value as Form["activityLevel"])}>
               {ACTIVITY_LEVELS.map((a) => <option key={a} value={a}>{ACTIVITY_LABELS[a]}</option>)}
@@ -138,8 +176,8 @@ export default function OnboardingPage() {
           </Field>
           <Field label="Gym experience">
             <select className={inputCls} value={form.gymExperience} onChange={(e) => set("gymExperience", e.target.value)}>
-              <option value="">Prefer not to say</option>
-              {GYM_EXPERIENCE.map((g) => <option key={g} value={g}>{g}</option>)}
+              <option value="" disabled>Select your experience…</option>
+              {GYM_EXPERIENCE.map((g) => <option key={g} value={g}>{GYM_EXPERIENCE_LABELS[g]}</option>)}
             </select>
           </Field>
         </section>
@@ -149,18 +187,12 @@ export default function OnboardingPage() {
         <section className="flex flex-col gap-4">
           <Field label="Diet">
             <select className={inputCls} value={form.dietType} onChange={(e) => set("dietType", e.target.value)}>
-              <option value="">No preference</option>
-              {DIET_TYPES.map((d) => <option key={d} value={d}>{d.replace("_", "-")}</option>)}
+              <option value="" disabled>Select your diet…</option>
+              {DIET_TYPES.map((d) => <option key={d} value={d}>{DIET_LABELS[d]}</option>)}
             </select>
           </Field>
           <Field label="Allergies (comma-separated)"><input className={inputCls} value={form.allergies} onChange={(e) => set("allergies", e.target.value)} placeholder="peanuts, shellfish" /></Field>
           <Field label="Foods you avoid (comma-separated)"><input className={inputCls} value={form.foodsAvoided} onChange={(e) => set("foodsAvoided", e.target.value)} placeholder="beef" /></Field>
-          <Field label="Budget">
-            <select className={inputCls} value={form.budgetLevel} onChange={(e) => set("budgetLevel", e.target.value)}>
-              <option value="">No preference</option>
-              {BUDGET_LEVELS.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-          </Field>
         </section>
       )}
 
@@ -189,7 +221,7 @@ export default function OnboardingPage() {
           Back
         </button>
         {step < STEPS.length - 1 ? (
-          <button className={btnPrimary} onClick={() => setStep((s) => s + 1)}>Next</button>
+          <button className={btnPrimary} onClick={next} disabled={!canAdvance}>Next</button>
         ) : (
           <button className={btnPrimary} onClick={submit} disabled={pending || !preview}>
             {pending ? "Saving…" : "Save & finish"}
@@ -202,7 +234,7 @@ export default function OnboardingPage() {
 
 const inputCls =
   "w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700";
-const btnPrimary = "rounded-lg bg-emerald-600 px-5 py-2 text-sm font-medium text-white disabled:opacity-50";
+const btnPrimary = "rounded-lg bg-emerald-400 px-5 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50";
 const btnGhost = "rounded-lg px-5 py-2 text-sm font-medium text-neutral-600 disabled:opacity-40 dark:text-neutral-300";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

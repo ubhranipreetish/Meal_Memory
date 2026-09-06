@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calcBMR, calcTDEE, calcTargets, type TargetInputs } from "./targets";
+import { calcBMI, calcBMR, calcTDEE, calcTargets, suggestGoal, type TargetInputs } from "./targets";
 
 /**
  * Sprint 0 benchmark: targets math must match hand-calculated values for 3
@@ -105,5 +105,56 @@ describe("macro calories reconcile with kcal target", () => {
     const macroKcal = t.proteinG * 4 + t.carbsG * 4 + t.fatG * 9;
     // within one macro-gram's worth of rounding error
     expect(Math.abs(macroKcal - t.kcal)).toBeLessThanOrEqual(9);
+  });
+});
+
+describe("calcBMI", () => {
+  it("computes kg/m² rounded to 1dp", () => {
+    expect(calcBMI(175, 75)).toBe(24.5);
+    expect(calcBMI(180, 80)).toBe(24.7);
+  });
+  it("returns 0 for invalid height", () => {
+    expect(calcBMI(0, 70)).toBe(0);
+  });
+});
+
+describe("suggestGoal — dynamic goal from body stats", () => {
+  const base = { gender: "male" as const, age: 30 };
+
+  it("underweight (BMI < 18.5) → build muscle", () => {
+    const s = suggestGoal({ ...base, heightCm: 180, weightKg: 55 }); // BMI 17.0
+    expect(s.goal).toBe("build_muscle");
+    expect(s.reason).toMatch(/underweight/i);
+  });
+
+  it("healthy (18.5–23) → lean bulk", () => {
+    const s = suggestGoal({ ...base, heightCm: 180, weightKg: 68 }); // BMI 21.0
+    expect(s.goal).toBe("lean_bulk");
+  });
+
+  it("slightly above healthy (23–27.5) → recomp", () => {
+    const s = suggestGoal({ ...base, heightCm: 175, weightKg: 75 }); // BMI 24.5
+    expect(s.goal).toBe("recomp");
+  });
+
+  it("overweight (>= 27.5) → lose fat", () => {
+    const s = suggestGoal({ ...base, heightCm: 170, weightKg: 90 }); // BMI 31.1
+    expect(s.goal).toBe("lose_fat");
+    expect(s.reason).toMatch(/fat loss/i);
+  });
+
+  it("boundaries land in the right band", () => {
+    // exactly 23.0 is NOT healthy-band anymore (Asian cut-off) → recomp
+    expect(suggestGoal({ ...base, heightCm: 100, weightKg: 23 }).goal).toBe("recomp");
+    // exactly 18.5 → lean bulk (not underweight)
+    expect(suggestGoal({ ...base, heightCm: 100, weightKg: 18.5 }).goal).toBe("lean_bulk");
+  });
+
+  it("suggestion always feeds a valid target calculation", () => {
+    const input = { gender: "female" as const, age: 28, heightCm: 165, weightKg: 85 };
+    const s = suggestGoal(input);
+    const t = calcTargets({ ...input, activityLevel: "moderate", goal: s.goal });
+    expect(t.kcal).toBeGreaterThan(1000);
+    expect(t.proteinG).toBeGreaterThan(0);
   });
 });

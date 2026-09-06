@@ -25,7 +25,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function seedFood(name: string, unit: string, kcal: number, proteinG: number) {
   await confirmAndLog(userId, {
     raw: `seed: 1 ${unit} ${name}`,
-    mealType: "other",
+    mealType: "snack",
     inputMode: "text",
     items: [
       {
@@ -33,10 +33,13 @@ async function seedFood(name: string, unit: string, kcal: number, proteinG: numb
         typedName: name,
         qty: 1,
         unit,
+        perQty: 1,
         status: "new",
         perUnit: { kcal, proteinG, carbsG: 20, fatG: 8 },
         confidence: 0.9,
         assumptions: "seeded for eval",
+        saveToMemory: true,
+        updateMemory: false,
       },
     ],
   });

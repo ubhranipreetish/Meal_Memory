@@ -49,6 +49,31 @@ describe("quickParseSegments", () => {
     expect(s[0].namePart).toBe("idlis");
   });
 
+  it("understands Hinglish number words (voice transcripts)", () => {
+    const s = quickParseSegments("char boiled egg")!;
+    expect(s[0].qty).toBe(4);
+    expect(s[0].namePart).toBe("boiled egg");
+    expect(quickParseSegments("do roti and aadha bowl dal")![1].qty).toBe(0.5);
+    expect(quickParseSegments("dedh katori chawal")![0].qty).toBe(1.5);
+    // katori is understood on input but folds into the one supported word, bowl
+    expect(quickParseSegments("dedh katori chawal")![0].unit).toBe("bowl");
+  });
+
+  it("does not eat food names that start with a number word", () => {
+    // "dosa" must not be read as Hindi "do" (2)
+    expect(quickParseSegments("dosa")![0].namePart).toBe("dosa");
+    expect(quickParseSegments("dosa")![0].qty).toBe(1);
+  });
+
+  it("parses measured units (g / ml) as qty in grams/ml", () => {
+    const a = quickParseSegments("250 ml milk")!;
+    expect(a[0]).toMatchObject({ qty: 250, unit: "ml", namePart: "milk" });
+    const b = quickParseSegments("200g chicken breast")!;
+    expect(b[0]).toMatchObject({ qty: 200, unit: "g", namePart: "chicken breast" });
+    const c = quickParseSegments("2 tbsp peanut butter")!;
+    expect(c[0]).toMatchObject({ qty: 2, unit: "tbsp", namePart: "peanut butter" });
+  });
+
   it("bare name defaults to qty 1", () => {
     const s = quickParseSegments("paneer paratha")!;
     expect(s[0].qty).toBe(1);

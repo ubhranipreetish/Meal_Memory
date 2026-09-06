@@ -68,7 +68,7 @@ export function PlanBuilder({ exercises, plans }: { exercises: Exercise[]; plans
   return (
     <div className="flex flex-col gap-4">
       {!creating ? (
-        <button className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-medium text-white" onClick={() => setCreating(true)}>
+        <button className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-medium text-emerald-950" onClick={() => setCreating(true)}>
           + New plan
         </button>
       ) : (
@@ -131,7 +131,7 @@ export function PlanBuilder({ exercises, plans }: { exercises: Exercise[]; plans
           <div className="mt-3 flex justify-end gap-2">
             <button className="px-4 py-2 text-sm text-neutral-500" onClick={() => setCreating(false)} disabled={busy}>Cancel</button>
             <button
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+              className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-40"
               onClick={save}
               disabled={busy || planName.trim().length < 2 || draft.length === 0}
             >

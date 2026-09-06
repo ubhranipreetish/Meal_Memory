@@ -29,6 +29,7 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
           id: food.id,
           name: food.name,
           unit: food.unit,
+          servingQty: food.servingQty,
           kcal: food.kcal,
           proteinG: food.proteinG,
           carbsG: food.carbsG,

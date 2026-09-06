@@ -38,7 +38,7 @@ export default async function SettingsPage() {
         <Row label="Diet" value={profile.dietType ?? "—"} />
       </section>
 
-      <Link href="/onboarding" className="rounded-lg bg-emerald-600 px-5 py-2.5 text-center text-sm font-medium text-white">
+      <Link href="/onboarding" className="rounded-lg bg-emerald-400 px-5 py-2.5 text-center text-sm font-medium text-emerald-950">
         Edit profile & re-calculate targets
       </Link>
       <p className="text-sm text-neutral-500">Editing re-runs the calorie & macro calculation and updates your targets.</p>

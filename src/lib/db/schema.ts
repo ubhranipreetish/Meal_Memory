@@ -57,7 +57,7 @@ export const profiles = pgTable("profiles", {
   dietType: text("diet_type"), // veg | eggetarian | non_veg | vegan
   allergies: text("allergies").array(),
   foodsAvoided: text("foods_avoided").array(),
-  budgetLevel: text("budget_level"),
+  // budgetLevel: removed from onboarding (column left in DB, nullable, unused)
   cuisineNotes: text("cuisine_notes"),
   schedule: jsonb("schedule"), // { wake, sleep, gym, meals }
   targets: jsonb("targets"), // { kcal, proteinG, carbsG, fatG, waterMl, steps }
@@ -106,7 +106,7 @@ export const mealLogs = pgTable("meal_logs", {
   id: id(),
   userId: userId(),
   loggedAt: timestamp("logged_at", { withTimezone: true }).notNull().defaultNow(),
-  mealType: text("meal_type"), // breakfast | lunch | snack | dinner | other
+  mealType: text("meal_type"), // breakfast | lunch | snack | post_workout | dinner (legacy: other)
   rawInput: text("raw_input").notNull(), // exact user utterance — always kept
   inputMode: text("input_mode"), // text | voice | photo | quick_pick
   photoPath: text("photo_path"),
@@ -119,7 +119,8 @@ export const mealLogItems = pgTable("meal_log_items", {
   mealLogId: uuid("meal_log_id")
     .notNull()
     .references(() => mealLogs.id, { onDelete: "cascade" }),
-  foodMemoryId: uuid("food_memory_id").references(() => foodMemory.id),
+  foodMemoryId: uuid("food_memory_id").references(() => foodMemory.id), // null when not saved to memory
+  name: text("name"), // name snapshot at log time (added 2026-09-05; older rows null → join food_memory)
   qty: numeric("qty").notNull(),
   unit: text("unit"),
   // denormalized nutrition snapshot at log time

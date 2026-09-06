@@ -1,8 +1,24 @@
 @import "tailwindcss";
 
+/*
+ * Personal Gym design tokens (docs/UX_AUDIT.md G1/G2).
+ * The app was written with emerald-* / neutral-* utility classes; we override
+ * those scales here so the entire app moves to OUR palette in one place:
+ *  - surfaces: warm charcoal (never pure black) with warm-tinted borders
+ *  - accent ("emerald"): citrus lime — energetic, fitness-native
+ *  - amber stays stock: reserved for PRs and over-target warnings
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf9f6; /* warm off-white (light mode) */
+  --foreground: #1c1a17;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #131210; /* warm charcoal, not #000 */
+    --foreground: #ece9e2;
+  }
 }
 
 @theme inline {
@@ -10,17 +26,61 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display), var(--font-geist-sans);
+}
+
+@theme {
+  /* citrus lime replaces AI-default emerald */
+  --color-emerald-50: #f8fce8;
+  --color-emerald-100: #eef9c8;
+  --color-emerald-200: #ddf295;
+  --color-emerald-300: #c8e95c;
+  --color-emerald-400: #b3dc2e;
+  --color-emerald-500: #9cc716;
+  --color-emerald-600: #84ad0b;
+  --color-emerald-700: #66850d;
+  --color-emerald-800: #516910;
+  --color-emerald-900: #445812;
+  --color-emerald-950: #233104;
+
+  /* warm the neutral scale (browns instead of blue-grays) */
+  --color-neutral-50: #faf9f6;
+  --color-neutral-100: #f2f0ea;
+  --color-neutral-200: #e3e0d5;
+  --color-neutral-300: #cdc9bb;
+  --color-neutral-400: #a29d8f;
+  --color-neutral-500: #787468;
+  --color-neutral-600: #57544b;
+  --color-neutral-700: #403d36;
+  --color-neutral-800: #2b2925;
+  --color-neutral-900: #1e1c19;
+  --color-neutral-950: #131210;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    /* brighter lime reads better on dark surfaces */
+    --tw-accent-adjust: 1;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2 {
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* text/border lime pops on charcoal; buttons use -400 with dark text */
+    --color-emerald-600: #b3dc2e;
+    --color-emerald-500: #c0e348;
+  }
 }

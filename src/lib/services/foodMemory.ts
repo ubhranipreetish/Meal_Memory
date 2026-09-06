@@ -18,7 +18,14 @@ import {
   quickParseSegments,
   quickParseWater,
 } from "@/lib/services/quickParse";
-import type { ConfirmLogInput, MealType, ResolvedItem, ResolvedLog } from "@/types/food";
+import {
+  itemTotals,
+  servingSize,
+  type ConfirmLogInput,
+  type MealType,
+  type ResolvedItem,
+  type ResolvedLog,
+} from "@/types/food";
 
 /**
  * Fuzzy-match ceiling: cosine distance must be below this AND the candidate
@@ -69,15 +76,38 @@ async function fuzzyLookup(userId: string, name: string): Promise<MemoryRow | nu
   } as MemoryRow;
 }
 
-/** Meal type from local time when the user didn't say. */
+/** Meal slot from local time when the user didn't say (pure; unit-tested). */
 export function inferMealType(d: Date = new Date()): MealType {
   const h = d.getHours() + d.getMinutes() / 60;
-  if (h < 4) return "other";
+  if (h < 4) return "dinner"; // late-night eating counts toward dinner
   if (h < 11) return "breakfast";
   if (h < 15.5) return "lunch";
   if (h < 18.5) return "snack";
-  if (h < 23) return "dinner";
-  return "other";
+  return "dinner";
+}
+
+/** How long after a workout a meal still counts as "post-workout". */
+export const POST_WORKOUT_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Slot suggestion with context: a workout finished (or started) in the last
+ * two hours → post_workout, else the time-of-day default. The user can always
+ * override in the UI — this only picks the pre-selected chip.
+ */
+export async function suggestMealType(userId: string, now: Date = new Date()): Promise<MealType> {
+  const db = getDb();
+  const since = new Date(now.getTime() - POST_WORKOUT_WINDOW_MS);
+  const [row] = await db
+    .select({ id: schema.workoutSessions.id })
+    .from(schema.workoutSessions)
+    .where(
+      and(
+        eq(schema.workoutSessions.userId, userId),
+        sql`coalesce(${schema.workoutSessions.endedAt}, ${schema.workoutSessions.startedAt}) >= ${since.toISOString()}`,
+      ),
+    )
+    .limit(1);
+  return row ? "post_workout" : inferMealType(now);
 }
 
 type MemoryRow = typeof schema.foodMemory.$inferSelect;
@@ -141,15 +171,25 @@ export async function resolveUtterance(userId: string, utterance: string): Promi
   if (segments) {
     const hits = await lookupAliases(userId, segments.map((s) => s.namePart));
     if (segments.every((s) => hits.has(s.namePart))) {
+      // A measured↔countable unit mismatch ("1 glass" of a food saved per 100 ml)
+      // can't be scaled deterministically → let the AI estimate that phrasing.
+      const convertible = segments.every((s) => {
+        const m = hits.get(s.namePart)!;
+        return !s.unit || servingSize(s.unit) === servingSize(m.servingUnit);
+      });
+      if (!convertible) return resolveViaAi(userId, utterance);
       const items: ResolvedItem[] = segments.map((s) => {
         const m = hits.get(s.namePart)!;
+        const unit = s.unit ?? m.servingUnit;
         return {
           name: m.canonicalName,
           typedName: s.namePart,
           qty: s.qty,
-          unit: s.unit ?? m.servingUnit,
+          unit,
+          perQty: Number(m.servingQty) || servingSize(unit),
           status: "known",
           foodMemoryId: m.id,
+          memoryUnit: m.servingUnit,
           perUnit: memoryToPerUnit(m),
         };
       });
@@ -163,13 +203,18 @@ export async function resolveUtterance(userId: string, utterance: string): Promi
     }
   }
 
-  // Path B: one AI call parses + estimates; memory overrides estimates.
+  return resolveViaAi(userId, utterance);
+}
+
+/** Path B: one AI call parses + estimates; memory overrides estimates. */
+async function resolveViaAi(userId: string, utterance: string): Promise<ResolvedLog> {
   const parsed = await parseFoodUtterance(utterance);
   const items = await resolveParsedItems(userId, parsed.items);
 
   return {
     raw: utterance,
-    mealType: parsed.mealType ?? inferMealType(),
+    mealType: parsed.mealType ?? (await suggestMealType(userId)),
+    mealTypeExplicit: parsed.mealType != null,
     waterMl: parsed.waterMl ?? undefined,
     items,
     needsConfirmation: items.some((i) => i.status === "new"),
@@ -189,15 +234,37 @@ export async function resolveParsedItems(
   return Promise.all(
     parsedItems.map(async (i) => {
       const m = hits.get(i.name) ?? (await fuzzyLookup(userId, i.name));
+      const estimate = { kcal: i.kcal, proteinG: i.proteinG, carbsG: i.carbsG, fatG: i.fatG };
       if (m) {
+        const memoryQty = Number(m.servingQty) || servingSize(m.servingUnit);
+        // Same kind of unit → trust the user's confirmed memory values.
+        if (servingSize(i.unit) === servingSize(m.servingUnit)) {
+          return {
+            name: m.canonicalName,
+            typedName: i.name,
+            qty: i.qty,
+            unit: i.unit,
+            perQty: memoryQty,
+            status: "known" as const,
+            foodMemoryId: m.id,
+            memoryUnit: m.servingUnit,
+            perUnit: memoryToPerUnit(m),
+          };
+        }
+        // Different kind ("glass" vs saved "per 100 ml") → keep the memory
+        // link (stats, no duplicate) but use the AI estimate for THIS unit.
         return {
           name: m.canonicalName,
           typedName: i.name,
           qty: i.qty,
           unit: i.unit,
+          perQty: servingSize(i.unit),
           status: "known" as const,
           foodMemoryId: m.id,
-          perUnit: memoryToPerUnit(m),
+          memoryUnit: m.servingUnit,
+          perUnit: estimate,
+          confidence: i.confidence,
+          assumptions: `Estimated per ${i.unit} — your saved ${m.canonicalName} is per ${memoryQty} ${m.servingUnit}`,
         };
       }
       return {
@@ -205,8 +272,9 @@ export async function resolveParsedItems(
         typedName: i.name,
         qty: i.qty,
         unit: i.unit,
+        perQty: servingSize(i.unit),
         status: "new" as const,
-        perUnit: { kcal: i.kcal, proteinG: i.proteinG, carbsG: i.carbsG, fatG: i.fatG },
+        perUnit: estimate,
         confidence: i.confidence,
         assumptions: i.assumptions ?? null,
       };
@@ -222,8 +290,8 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
   const db = getDb();
   const now = new Date();
 
-  // 1. Ensure a food_memory row per item.
-  const itemMemoryIds: string[] = [];
+  // 1. Ensure a food_memory row per item (null when the user chose not to save).
+  const itemMemoryIds: (string | null)[] = [];
   for (const item of input.items) {
     if (item.status === "known" && item.foodMemoryId) {
       itemMemoryIds.push(item.foodMemoryId);
@@ -233,6 +301,21 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
           timesLogged: sql`${schema.foodMemory.timesLogged} + 1`,
           lastLoggedAt: now,
           updatedAt: now,
+          // User edited the values in the review card and asked to keep them:
+          // the user is the authority (ADR-006). Past logs keep their snapshots.
+          ...(item.updateMemory
+            ? {
+                canonicalName: item.name,
+                servingUnit: item.unit,
+                servingQty: String(item.perQty),
+                kcal: String(item.perUnit.kcal),
+                proteinG: String(item.perUnit.proteinG),
+                carbsG: String(item.perUnit.carbsG),
+                fatG: String(item.perUnit.fatG),
+                source: "user_entered",
+                confidence: "1",
+              }
+            : {}),
         })
         .where(and(eq(schema.foodMemory.id, item.foodMemoryId), eq(schema.foodMemory.userId, userId)));
 
@@ -245,6 +328,8 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
           .values({ userId, foodMemoryId: item.foodMemoryId, alias: typed })
           .onConflictDoNothing();
       }
+    } else if (!item.saveToMemory) {
+      itemMemoryIds.push(null); // one-off: logged with its snapshot only
     } else {
       const [mem] = await db
         .insert(schema.foodMemory)
@@ -252,7 +337,7 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
           userId,
           canonicalName: item.name,
           servingUnit: item.unit,
-          servingQty: "1",
+          servingQty: String(item.perQty),
           kcal: String(item.perUnit.kcal),
           proteinG: String(item.perUnit.proteinG),
           carbsG: String(item.perUnit.carbsG),
@@ -306,16 +391,18 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
 
     for (let i = 0; i < input.items.length; i++) {
       const item = input.items[i];
+      const t = itemTotals(item);
       await db.insert(schema.mealLogItems).values({
         userId,
         mealLogId: log.id,
         foodMemoryId: itemMemoryIds[i],
+        name: item.name,
         qty: String(item.qty),
         unit: item.unit,
-        kcal: String(item.perUnit.kcal * item.qty),
-        proteinG: String(item.perUnit.proteinG * item.qty),
-        carbsG: String(item.perUnit.carbsG * item.qty),
-        fatG: String(item.perUnit.fatG * item.qty),
+        kcal: String(t.kcal),
+        proteinG: String(t.proteinG),
+        carbsG: String(t.carbsG),
+        fatG: String(t.fatG),
       });
     }
   }
@@ -390,7 +477,7 @@ export async function getTodayFeed(userId: string) {
       .filter((r) => r.item.mealLogId === l.id)
       .map((r) => ({
         id: r.item.id,
-        name: r.foodName ?? "Food",
+        name: r.item.name ?? r.foodName ?? "Food",
         qty: num(r.item.qty),
         unit: r.item.unit,
         kcal: Math.round(num(r.item.kcal)),
@@ -398,4 +485,25 @@ export async function getTodayFeed(userId: string) {
         foodMemoryId: r.item.foodMemoryId,
       })),
   }));
+}
+
+/** Delete one of the user's meal logs (items cascade). Memory rows are untouched. */
+export async function deleteMealLog(userId: string, mealLogId: string) {
+  const db = getDb();
+  const deleted = await db
+    .delete(schema.mealLogs)
+    .where(and(eq(schema.mealLogs.id, mealLogId), eq(schema.mealLogs.userId, userId)))
+    .returning({ id: schema.mealLogs.id });
+  if (deleted.length === 0) throw new Error("Meal not found");
+}
+
+/** Move a logged meal to another slot (e.g. instant log guessed "dinner", it was post-workout). */
+export async function setMealLogType(userId: string, mealLogId: string, mealType: MealType) {
+  const db = getDb();
+  const updated = await db
+    .update(schema.mealLogs)
+    .set({ mealType, updatedAt: new Date() })
+    .where(and(eq(schema.mealLogs.id, mealLogId), eq(schema.mealLogs.userId, userId)))
+    .returning({ id: schema.mealLogs.id });
+  if (updated.length === 0) throw new Error("Meal not found");
 }
