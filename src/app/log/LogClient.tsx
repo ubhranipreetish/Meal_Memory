@@ -15,7 +15,9 @@ import {
   type ResolvedItem,
   type ResolvedLog,
 } from "@/types/food";
-import { quickLogAction } from "@/app/history/actions";
+import { ArrowUpRight, Camera, Check, Mic, Plus, Square, Trash2, X } from "lucide-react";
+import { SavedFoodPicker } from "./SavedFoodPicker";
+import type { listSavedFoods } from "@/lib/services/history";
 import { VOICE_SAMPLE_RATE, downsample, encodeWav, normalize, toBase64, toMono } from "@/lib/audio/wav";
 import {
   confirmAction,
@@ -30,33 +32,27 @@ import {
 interface FeedItem {
   id: string;
   loggedAt: string;
+  timeLabel: string;
   mealType: string | null;
   rawInput: string;
   items: { id: string; name: string; qty: number; unit: string | null; kcal: number; proteinG: number }[];
 }
 
-interface RecentFood {
-  id: string;
-  name: string;
-  kcal: number;
-  unit: string;
-  servingQty: number;
-}
-
 /** Longest single recording we'll upload (keeps payloads and quota sane). */
 const MAX_RECORDING_MS = 30_000;
+const MAX_SOURCE_PHOTO_BYTES = 15 * 1024 * 1024;
 
 export function LogClient({
   feed,
-  recentFoods = [],
+  savedFoods = [],
   suggestedMealType,
 }: {
   feed: FeedItem[];
-  recentFoods?: RecentFood[];
+  savedFoods?: Awaited<ReturnType<typeof listSavedFoods>>;
   suggestedMealType: MealType;
 }) {
   const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [mealType, setMealType] = useState<MealType>(suggestedMealType);
   const [text, setText] = useState("");
@@ -164,6 +160,14 @@ export function LogClient({
   /** Photo input: downscale client-side, then vision-analyze → review card. */
   function onPhotoPicked(file: File) {
     setError(null);
+    if (!file.type.startsWith("image/")) {
+      setError("Choose an image file (JPEG, PNG, HEIC, or WebP).");
+      return;
+    }
+    if (file.size > MAX_SOURCE_PHOTO_BYTES) {
+      setError("That photo is too large — choose one under 15 MB.");
+      return;
+    }
     setStatus("Reading photo…");
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -196,6 +200,11 @@ export function LogClient({
         setStatus(null);
       });
     };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      setStatus(null);
+      setError("Couldn't read that image — try a JPEG, PNG, or WebP photo.");
+    };
     img.src = url;
   }
 
@@ -223,14 +232,14 @@ export function LogClient({
         return;
       }
       const slot = r.mealTypeExplicit ? r.mealType : mealType;
-      if (r.needsConfirmation) {
+      if (r.items.length > 0) {
         setPendingPhotoPath(undefined);
         setPendingVoice(false);
         openReview(r);
         setStatus(null);
         return;
       }
-      // Everything known (or water-only) → log instantly into the chosen slot.
+      // Water-only input can be logged immediately.
       const c = await confirmAction({ ...toConfirmPayload(r), mealType: slot, inputMode: "text" });
       if (!c.ok) {
         setError(c.error);
@@ -267,126 +276,111 @@ export function LogClient({
       setMealType(slot);
       setStatus(
         saved > 0
-          ? `Logged to ${MEAL_LABELS[slot]} ✓ — ${saved} new food${saved > 1 ? "s" : ""} saved, next time it logs instantly`
+          ? `Logged to ${MEAL_LABELS[slot]} ✓ — ${saved} new food${saved > 1 ? "s" : ""} saved to My foods`
           : `Logged to ${MEAL_LABELS[slot]} ✓`,
       );
       router.refresh();
     });
   }
 
-  function focusInputFor(slot: MealType) {
-    setMealType(slot);
-    inputRef.current?.focus();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
   return (
-    <div className="flex flex-1 flex-col gap-4">
+    <>
       {/* ── Which slot of the day ─────────────────────────────────────── */}
       {!pendingLog && (
-        <div className="-mt-1">
-          <p className="mb-1.5 text-xs text-neutral-500">
-            Logging to{suggestedMealType === "post_workout" && mealType === "post_workout" ? " (workout detected)" : ""}
-          </p>
-          <SlotChips value={mealType} onChange={setMealType} />
+        <div className="section chips">
+          {MEAL_TYPES.filter((m) => m !== "post_workout" || m === mealType).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mealType === m}
+              onClick={() => setMealType(m)}
+              className={"chip " + (mealType === m ? "selected" : "")}
+            >
+              {MEAL_LABELS[m]}
+            </button>
+          ))}
         </div>
       )}
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submitUtterance(text);
-        }}
-        className="flex gap-2"
-      >
-        <input
-          ref={inputRef}
-          className="min-w-0 flex-1 rounded-xl border border-neutral-300 bg-transparent px-4 py-3 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700"
-          placeholder='e.g. "2 aloo parathas and a glass of milk"' 
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          disabled={busy || !!pendingLog}
-        />
-        <button
-          type="button"
-          aria-label={recording ? "Stop recording" : "Log by voice"}
-          title="Speak in English, Hindi or Hinglish — I'll work out which"
-          className={`flex items-center justify-center rounded-xl border px-3 ${recording ? "border-red-500 text-red-500" : "border-neutral-300 text-neutral-500 dark:border-neutral-700"}`}
-          onClick={startVoice}
-          disabled={busy || !!pendingLog}
-        >
-          {recording ? (
-            <span className="block h-3 w-3 animate-pulse rounded-sm bg-red-500" />
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" className="h-5 w-5" aria-hidden>
-              <rect x="9" y="3" width="6" height="11" rx="3" />
-              <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-            </svg>
-          )}
-        </button>
-        <button
-          type="button"
-          aria-label="Log from photo"
-          className="flex items-center justify-center rounded-xl border border-neutral-300 px-3 text-neutral-500 dark:border-neutral-700"
-          onClick={() => fileRef.current?.click()}
-          disabled={busy || !!pendingLog}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden>
-            <path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
-            <circle cx="12" cy="13.5" r="3.5" />
-          </svg>
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onPhotoPicked(f);
-            e.target.value = "";
+      {!pendingLog && (
+        <form
+          className="composer"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitUtterance(text);
           }}
-        />
-        <button
-          className="rounded-xl bg-emerald-400 px-5 text-sm font-medium text-emerald-950 disabled:opacity-50"
-          disabled={busy || !text.trim() || !!pendingLog}
         >
-          {busy ? "…" : "Log"}
-        </button>
-      </form>
+          <textarea
+            ref={inputRef}
+            aria-label="What did you eat?"
+            placeholder={'What did you eat?\ne.g. "2 aloo parathas and a glass of milk"'}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            disabled={busy}
+          />
+          <div className="row between">
+            <div className="row">
+              <button
+                type="button"
+                aria-label={recording ? "Stop recording" : "Log by voice"}
+                title="Speak in English, Hindi or Hinglish — I'll work out which"
+                className="icon"
+                style={recording ? { borderColor: "#e5484d", color: "#e5484d" } : undefined}
+                onClick={startVoice}
+                disabled={busy}
+              >
+                {recording ? <Square size={16} fill="currentColor" /> : <Mic size={20} />}
+              </button>
+              <button
+                type="button"
+                aria-label="Log from photo"
+                className="icon"
+                onClick={() => fileRef.current?.click()}
+                disabled={busy}
+              >
+                <Camera size={20} />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onPhotoPicked(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+            <button className="primary" disabled={busy || !text.trim()}>
+              {busy ? "Reading…" : "Log meal"}
+              <ArrowUpRight size={18} />
+            </button>
+          </div>
+        </form>
+      )}
 
       {recording && (
-        <p className="flex items-center gap-2 text-sm text-red-500">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+        <p className="row small mt-3" style={{ color: "#e5484d" }}>
+          <span style={{ width: 8, height: 8, borderRadius: 99, background: "#e5484d" }} className="animate-pulse" />
           Listening — say what you ate, in any language. Tap the square to stop.
         </p>
       )}
-      {status && !error && !recording && <p className="text-sm text-emerald-600">{status}</p>}
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {status && !error && !recording && <p className="small green mt-3">{status}</p>}
+      {error && <p className="small danger mt-3">{error}</p>}
 
-      {recentFoods.length > 0 && !pendingLog && (
-        <div className="flex flex-wrap gap-1.5">
-          {recentFoods.map((f) => (
-            <button
-              key={f.id}
-              className="rounded-full border border-neutral-300 px-3 py-1 text-xs text-neutral-600 hover:border-emerald-500 hover:text-emerald-600 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300"
-              disabled={busy}
-              onClick={() =>
-                startTransition(async () => {
-                  const r = await quickLogAction(f.id, mealType);
-                  if (r.ok) {
-                    setStatus(`${f.name} logged to ${MEAL_LABELS[mealType]} ⚡`);
-                    setError(null);
-                    router.refresh();
-                  }
-                })
-              }
-              title={`Log ${f.servingQty} ${f.unit} (${f.kcal} kcal)`}
-            >
-              + {f.name}
-            </button>
-          ))}
+      {!pendingLog && (
+        <div className="section row">
+          <SavedFoodPicker foods={savedFoods} meal={mealType} disabled={busy} onLogged={(name) => {
+            setError(null);
+            setStatus(`${name} logged to ${MEAL_LABELS[mealType].toLowerCase()}`);
+            router.refresh();
+          }} />
+          <button type="button" className="icon green shrink-0" aria-label="Add manually"
+            aria-expanded={showManual} aria-controls="manual-meal-entry" title="Add manually"
+            disabled={busy} onClick={() => setShowManual((shown) => !shown)}>
+            <Plus size={22} aria-hidden="true" />
+          </button>
         </div>
       )}
 
@@ -407,55 +401,46 @@ export function LogClient({
       )}
 
       {!pendingLog && (
-        <button
-          className="self-start text-xs text-neutral-500 underline underline-offset-4"
-          onClick={() => setShowManual((s) => !s)}
-        >
-          {showManual ? "Hide manual entry" : "Add manually instead"}
-        </button>
-      )}
-      {showManual && !pendingLog && (
-        <ManualEntry
-          busy={busy}
-          mealType={mealType}
-          onDone={() => {
-            setShowManual(false);
-            setStatus(`Logged to ${MEAL_LABELS[mealType]} ✓`);
-            router.refresh();
-          }}
-        />
+        <div id="manual-meal-entry" className={showManual ? "section" : undefined} hidden={!showManual}>
+          {showManual && (
+            <ManualEntry busy={busy} mealType={mealType} onDone={() => {
+              setShowManual(false);
+              setStatus(`Logged to ${MEAL_LABELS[mealType]} ✓`);
+              router.refresh();
+            }} />
+          )}
+        </div>
       )}
 
-      <TodayBySlot feed={feed} busy={busy} onLogInto={focusInputFor} />
-    </div>
+      {!pendingLog && <MealJournal feed={feed} busy={busy} />}
+    </>
   );
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function SlotChips({ value, onChange, compact = false }: { value: MealType; onChange: (m: MealType) => void; compact?: boolean }) {
+function MealSelect({ value, onChange, disabled, label = "Meal" }: {
+  value: string;
+  onChange: (meal: MealType) => void;
+  disabled?: boolean;
+  label?: string;
+}) {
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {MEAL_TYPES.map((m) => (
-        <button
-          key={m}
-          type="button"
-          onClick={() => onChange(m)}
-          className={`rounded-full ${compact ? "px-2.5 py-0.5 text-[11px]" : "px-3 py-1 text-xs"} font-medium transition-colors ${
-            value === m
-              ? "bg-emerald-400 text-emerald-950"
-              : "border border-neutral-300 text-neutral-500 hover:border-emerald-500 dark:border-neutral-700"
-          }`}
-        >
-          {MEAL_LABELS[m]}
-        </button>
-      ))}
-    </div>
+    <label className="row small muted">
+      Meal
+      <select className="field meal-select" aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as MealType)}>
+        {!MEAL_TYPES.includes(value as MealType) && <option value={value} disabled>Choose a meal</option>}
+        {MEAL_TYPES.filter((meal) => meal !== "post_workout" || meal === value).map((meal) => (
+          <option key={meal} value={meal}>{MEAL_LABELS[meal]}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 
 /** Client-side item state = ResolvedItem + review-card UI state. */
 type ReviewItem = ResolvedItem & {
+  id: number;
   saveToMemory: boolean;
   updateMemory: boolean;
   /** true once the user ticks/unticks updateMemory themselves — stops us overriding them. */
@@ -518,8 +503,9 @@ function ReviewCard({
 }) {
   const [slot, setSlot] = useState<MealType>(initialSlot);
   const [, startEstimate] = useTransition();
+  const nextItemId = useRef(resolved.items.length);
   const [items, setItems] = useState<ReviewItem[]>(() =>
-    resolved.items.map((i) => ({ ...i, saveToMemory: true, updateMemory: false, _edited: false })),
+    resolved.items.map((i, id) => ({ ...i, id, saveToMemory: true, updateMemory: false, _edited: false })),
   );
 
   const update = (idx: number, patch: Partial<ReviewItem>, edited = false) =>
@@ -564,9 +550,8 @@ function ReviewCard({
     startEstimate(async () => {
       const res = await reestimateUnitAction(name, unit);
       setItems((prev) =>
-        prev.map((cur, i) => {
-          // The user may have typed on while we waited — only apply if the unit still matches.
-          if (i !== idx || normalizeUnit(cur.unit) !== normalizeUnit(unit)) return cur;
+        prev.map((cur) => {
+          if (cur.id !== it.id) return cur;
           if (!res.ok) return { ...cur, estimating: false, estimateFailed: true };
           return {
             ...cur,
@@ -583,17 +568,12 @@ function ReviewCard({
     });
   };
 
-  const stepQty = (idx: number, dir: 1 | -1) => {
-    const it = items[idx];
-    const step = servingSize(it.unit) === 100 ? 50 : it.qty < 1 ? 0.5 : 1;
-    const q = Math.max(step === 50 ? 10 : 0.25, Math.round((it.qty + dir * step) * 100) / 100);
-    update(idx, { qty: q });
-  };
-
-  const addItem = () =>
+  const addItem = () => {
+    const id = nextItemId.current++;
     setItems((prev) => [
       ...prev,
       {
+        id,
         name: "",
         typedName: "",
         qty: 1,
@@ -606,6 +586,7 @@ function ReviewCard({
         _edited: true,
       },
     ]);
+  };
 
   const totals = useMemo(
     () =>
@@ -623,170 +604,164 @@ function ReviewCard({
     items.length > 0 && items.every((it) => it.name.trim().length > 0 && it.qty > 0 && !it.estimating);
   const newCount = items.filter((i) => i.status === "new").length;
 
-  const inputCls =
-    "rounded-lg border border-neutral-300 bg-transparent px-2 py-1.5 text-sm text-neutral-900 outline-none focus:border-emerald-500 dark:border-neutral-700 dark:text-neutral-100";
-
   return (
-    <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {source === "photo" ? "Here's what I saw" : source === "voice" ? "Here's what I heard" : "Check the estimate"}
-          </h3>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            {source === "photo"
-              ? "Fix the count if I miscounted — then adjust anything else."
-              : source === "voice"
-                ? `"${resolved.raw}"`
-                : "Values are per serving. Edit anything — you're the authority."}
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full bg-emerald-400/20 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-          {fmt(Math.round(totals.kcal))} kcal
-        </span>
+    <section className="meal-review section" aria-label="Review meal">
+      <div className="row between flex-wrap">
+        <h2>{source === "voice" ? "Review recording" : source === "photo" ? "Review photo" : "Review meal"}</h2>
+        <MealSelect value={slot} onChange={setSlot} />
       </div>
 
-      <div className="mt-3">
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-neutral-400">Meal</p>
-        <SlotChips value={slot} onChange={setSlot} compact />
-      </div>
-
-      <div className="mt-3 flex flex-col gap-3">
-        {items.map((item, idx) => {
-          const t = itemTotals(item);
-          return (
-            <div key={idx} className="rounded-xl border border-neutral-200 bg-white/60 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
-              {/* name + status */}
-              <div className="flex items-center gap-2">
+      {items.map((item, idx) => {
+        const t = itemTotals(item);
+        return (
+          <article className="card dish-review" key={item.id}>
+            <div className="row dish-name">
+              <label className="small muted flex-1 min-w-0">
+                Dish name
                 <input
-                  className={`${inputCls} min-w-0 flex-1 font-medium`}
+                  className="field mt-1 font-semibold"
+                  aria-label={`Dish ${idx + 1} name`}
                   value={item.name}
-                  placeholder="Food name"
+                  placeholder="e.g. Aloo Paratha"
+                  disabled={item.estimating}
                   onChange={(e) => update(idx, { name: e.target.value }, true)}
                 />
-                <button
-                  type="button"
-                  aria-label="Remove item"
-                  className="rounded-lg px-2 py-1 text-neutral-400 hover:text-red-500"
-                  onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
+              </label>
+              <button
+                type="button"
+                aria-label={`Remove ${item.name || "dish"}`}
+                className="icon shrink-0 self-end"
+                onClick={() => setItems((prev) => prev.filter((dish) => dish.id !== item.id))}
+              >
+                <X size={17} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="grid2 mt-2">
+              <label className="small muted">
+                Quantity
+                <input
+                  className="field mt-1"
+                  aria-label={`Dish ${idx + 1} quantity`}
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  value={item.qty || ""}
+                  onChange={(e) => update(idx, { qty: Math.max(0, Number(e.target.value) || 0) })}
+                />
+              </label>
+              <label className="small muted">
+                Unit
+                <select
+                  className="field mt-1"
+                  aria-label={`Dish ${idx + 1} unit`}
+                  value={item.unit}
+                  disabled={item.estimating}
+                  onChange={(e) => setUnit(idx, e.target.value)}
                 >
-                  ×
-                </button>
-              </div>
-              <p className="mt-1 text-[11px] text-neutral-500">
-                {item.status === "known" ? (
-                  <span className="text-emerald-600">From your foods</span>
-                ) : (
-                  <>
-                    AI estimate{item.confidence != null ? ` · ${(item.confidence * 100).toFixed(0)}% sure` : ""}
-                  </>
-                )}
-                {item.assumptions ? ` · ${item.assumptions}` : ""}
-              </p>
-
-              {/* quantity + unit */}
-              <div className="mt-2 flex items-center gap-2">
-                <span className="w-12 text-xs text-neutral-500">Qty</span>
-                <div className="flex items-center overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
-                  <button type="button" className="px-3 py-1.5 text-sm" onClick={() => stepQty(idx, -1)} aria-label="Less">
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    step="any"
-                    min={0}
-                    inputMode="decimal"
-                    className="w-16 border-x border-neutral-300 bg-transparent py-1.5 text-center text-sm outline-none dark:border-neutral-700"
-                    value={item.qty}
-                    onChange={(e) => update(idx, { qty: Math.max(0, Number(e.target.value) || 0) })}
-                  />
-                  <button type="button" className="px-3 py-1.5 text-sm" onClick={() => stepQty(idx, 1)} aria-label="More">
-                    +
-                  </button>
-                </div>
-                <select className={`${inputCls} flex-1`} value={item.unit} onChange={(e) => setUnit(idx, e.target.value)}>
-                  {(UNITS as readonly string[]).includes(item.unit) ? null : <option value={item.unit}>{item.unit} (old)</option>}
-                  {UNITS.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
-                  ))}
+                  {(UNITS as readonly string[]).includes(item.unit) ? null : <option value={item.unit}>{item.unit}</option>}
+                  {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
-              </div>
+              </label>
+            </div>
 
-              {/* per-serving macros */}
-              <p className="mt-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-neutral-400">
-                {perLabel(item.unit).replace(/^per/, "Per")}
-                {item.approxGrams ? <span className="normal-case tracking-normal">≈ {Math.round(item.approxGrams)} g</span> : null}
-                {item.estimating && <span className="normal-case tracking-normal text-emerald-600">re-estimating…</span>}
-                {item.estimateFailed && <span className="normal-case tracking-normal text-amber-600">couldn&apos;t re-estimate — check the numbers</span>}
-              </p>
-              <div className="mt-1 grid grid-cols-4 gap-2">
-                {(["kcal", "proteinG", "carbsG", "fatG"] as const).map((k) => (
-                  <label key={k} className="flex flex-col gap-1 text-[11px] text-neutral-500">
-                    {k === "kcal" ? "kcal" : k === "proteinG" ? "protein g" : k === "carbsG" ? "carbs g" : "fat g"}
+            <fieldset className="mt-3" disabled={item.estimating}>
+              <legend className="small muted mb-1">
+                Nutrition per {item.perQty > 1 ? `${item.perQty} ` : ""}{item.unit}
+              </legend>
+              <div className="dish-macros">
+                {(["kcal", "proteinG", "carbsG", "fatG"] as const).map((key, index) => (
+                  <label className="small muted" key={key}>
+                    {["Calories", "Protein", "Carbs", "Fat"][index]}
                     <input
+                      className="field mt-1"
                       type="number"
+                      min="0"
                       step="any"
-                      min={0}
                       inputMode="decimal"
-                      className={`${inputCls} ${item.estimating ? "animate-pulse opacity-50" : ""}`}
-                      value={item.perUnit[k]}
-                      onChange={(e) => setMacro(idx, k, e.target.value)}
+                      aria-label={`Dish ${idx + 1} ${["calories in kcal", "protein in grams", "carbs in grams", "fat in grams"][index]}`}
+                      value={item.perUnit[key]}
+                      onChange={(e) => setMacro(idx, key, e.target.value)}
                     />
+                    <span className="dish-unit">{index === 0 ? "kcal" : "g"}</span>
                   </label>
                 ))}
               </div>
-              <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-300">
-                = <span className="font-medium">{fmt(t.kcal)} kcal</span> · {fmt(t.proteinG)}g P · {fmt(t.carbsG)}g C · {fmt(t.fatG)}g F
-                <span className="text-neutral-400"> for {fmt(item.qty)} {item.unit}</span>
-              </p>
+            </fieldset>
 
-              {/* memory toggles */}
-              {item.status === "new" ? (
-                <label className="mt-2 flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
-                  <input type="checkbox" className="accent-emerald-500" checked={item.saveToMemory} onChange={(e) => update(idx, { saveToMemory: e.target.checked })} />
-                  Save to my foods — next time it logs instantly
+            {item.estimating && <p role="status" className="small green mt-2">Updating nutrition…</p>}
+            {item.estimateFailed && <p role="status" className="small danger mt-2">Couldn&rsquo;t update nutrition. Check these values before saving.</p>}
+
+            <p className="small mt-2">
+              <span className="muted">Dish total</span> <strong>{fmt(t.kcal)} kcal</strong> · {fmt(t.proteinG)}g P · {fmt(t.carbsG)}g C · {fmt(t.fatG)}g F
+            </p>
+            <p className="small muted mt-1">
+              {item.status === "known" && !item.assumptions ? "From your foods" : item.confidence != null ? "Estimated nutrition" : "Your nutrition values"}
+            </p>
+
+            {item.status === "new" ? (
+              <label className="row small muted mt-2" style={{ minHeight: 44 }}>
+                <input
+                  type="checkbox"
+                  className="accent-emerald-500"
+                  checked={item.saveToMemory}
+                  onChange={(e) => update(idx, { saveToMemory: e.target.checked })}
+                />
+                Save to my foods
+              </label>
+            ) : (
+              item._edited && (
+                <label className="row small muted mt-2" style={{ minHeight: 44 }}>
+                  <input
+                    type="checkbox"
+                    className="accent-emerald-500"
+                    checked={item.updateMemory}
+                    onChange={(e) => update(idx, { updateMemory: e.target.checked, updateMemoryTouched: true })}
+                  />
+                  <span>
+                    Also update my saved values
+                    {item.memoryUnit && normalizeUnit(item.memoryUnit) !== normalizeUnit(item.unit)
+                      ? ` (saved per ${item.memoryUnit} — this switches it to ${perLabel(item.unit)})`
+                      : ""}
+                  </span>
                 </label>
-              ) : (
-                item._edited && (
-                  <label className="mt-2 flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
-                    <input type="checkbox" className="accent-emerald-500" checked={item.updateMemory} onChange={(e) => update(idx, { updateMemory: e.target.checked, updateMemoryTouched: true })} />
-                    Also update my saved values for this food
-                    {item.memoryUnit && servingSize(item.memoryUnit) !== servingSize(item.unit) ? ` (it's saved per ${item.memoryUnit} — this would switch it to ${perLabel(item.unit).replace("per ", "per ")})` : ""}
-                  </label>
-                )
-              )}
-            </div>
-          );
-        })}
-      </div>
+              )
+            )}
+          </article>
+        );
+      })}
 
-      <button type="button" className="mt-3 text-xs text-emerald-600 underline underline-offset-4" onClick={addItem}>
+      <button type="button" className="green small mt-2" onClick={addItem}>
         + Add another item
       </button>
 
-      {resolved.waterMl ? <p className="mt-2 text-xs text-neutral-500">+ {resolved.waterMl} ml water</p> : null}
+      {resolved.waterMl ? <p className="small muted mt-2">+ {resolved.waterMl} ml water</p> : null}
 
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <p className="text-xs text-neutral-500">
-          {fmt(Math.round(totals.kcal))} kcal · {fmt(Math.round(totals.proteinG))}g protein
-          {newCount > 0 && items.some((i) => i.status === "new" && i.saveToMemory) ? ` · saving ${items.filter((i) => i.status === "new" && i.saveToMemory).length} new` : ""}
-        </p>
-        <div className="flex gap-2">
-          <button className="rounded-lg px-3 py-2 text-sm text-neutral-500" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-          <button
-            className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
-            onClick={() => onConfirm({ ...resolved, mealType: slot, items }, slot)}
-            disabled={busy || !valid}
-          >
-            {busy ? "Saving…" : `Log ${MEAL_LABELS[slot].toLowerCase()}`}
-          </button>
+      <div className="row between mt-3">
+        <div>
+          <span className="small muted">Meal total</span>
+          <p>
+            <strong className="metric">{fmt(Math.round(totals.kcal))}</strong> kcal
+          </p>
         </div>
+        <span className="green small">
+          {fmt(Math.round(totals.proteinG))}g protein
+          {newCount > 0 && items.some((i) => i.status === "new" && i.saveToMemory)
+            ? ` · saving ${items.filter((i) => i.status === "new" && i.saveToMemory).length} new`
+            : ""}
+        </span>
       </div>
-    </div>
+
+      <div className="row mt-4">
+        <button className="secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button className="primary flex-1" onClick={() => onConfirm({ ...resolved, mealType: slot, items }, slot)} disabled={busy || !valid}>
+          {busy ? "Saving…" : `Log ${MEAL_LABELS[slot].toLowerCase()}`} <Check size={18} />
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -829,30 +804,55 @@ function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: Meal
     });
   }
 
-  const cls = "rounded-lg border border-neutral-300 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700";
   return (
-    <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-      <div className="grid grid-cols-3 gap-2">
-        <input className={`${cls} col-span-3`} placeholder="Food name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        <input className={cls} type="number" step="any" placeholder="Qty" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
-        <select className={cls} value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })}>
-          {UNITS.map((u) => (
-            <option key={u} value={u}>
-              {u}
-            </option>
-          ))}
-        </select>
-        <input className={cls} type="number" step="any" placeholder={`kcal ${perLabel(f.unit)}`} value={f.kcal} onChange={(e) => setF({ ...f, kcal: e.target.value })} />
-        <input className={cls} type="number" step="any" placeholder="Protein g" value={f.proteinG} onChange={(e) => setF({ ...f, proteinG: e.target.value })} />
-        <input className={cls} type="number" step="any" placeholder="Carbs g" value={f.carbsG} onChange={(e) => setF({ ...f, carbsG: e.target.value })} />
-        <input className={cls} type="number" step="any" placeholder="Fat g" value={f.fatG} onChange={(e) => setF({ ...f, fatG: e.target.value })} />
+    <div className="spaced mt-3">
+      <label className="small muted">
+        Food name
+        <input className="field mt-1" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+      </label>
+      <div className="grid2">
+        <label className="small muted">
+          Quantity
+          <input className="field mt-1" type="number" min="0" step="any" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
+        </label>
+        <label className="small muted">
+          Unit
+          <select className="field mt-1" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })}>
+            {UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
-      <label className="mt-2 flex items-center gap-2 text-xs text-neutral-500">
+      <p className="eyebrow muted">{perLabel(f.unit).toUpperCase()}</p>
+      <div className="grid2">
+        {([
+          ["kcal", "Calories · kcal", f.kcal],
+          ["proteinG", "Protein · g", f.proteinG],
+          ["carbsG", "Carbs · g", f.carbsG],
+          ["fatG", "Fat · g", f.fatG],
+        ] as const).map(([key, label, value]) => (
+          <label className="small muted" key={key}>
+            {label}
+            <input
+              className="field mt-1"
+              type="number"
+              min="0"
+              step="any"
+              value={value}
+              onChange={(e) => setF({ ...f, [key]: e.target.value })}
+            />
+          </label>
+        ))}
+      </div>
+      <label className="row small muted" style={{ minHeight: 44 }}>
         <input type="checkbox" className="accent-emerald-500" checked={f.save} onChange={(e) => setF({ ...f, save: e.target.checked })} />
         Save to my foods
       </label>
-      {err && <p className="mt-2 text-xs text-red-500">{err}</p>}
-      <button className="mt-3 rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50" onClick={saveEntry} disabled={busy}>
+      {err && <p className="small danger">{err}</p>}
+      <button className="primary" onClick={saveEntry} disabled={busy}>
         Log {MEAL_LABELS[mealType].toLowerCase()}
       </button>
     </div>
@@ -861,117 +861,78 @@ function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: Meal
 
 /* ────────────────────────────────────────────────────────────────────────── */
 
-/** Today's feed grouped into the five slots, with per-slot totals and fix-ups. */
-function TodayBySlot({ feed, busy, onLogInto }: { feed: FeedItem[]; busy: boolean; onLogInto: (m: MealType) => void }) {
+/** Review and correct the meals already logged today. */
+function MealJournal({ feed, busy }: { feed: FeedItem[]; busy: boolean }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-
-  const groups = useMemo(() => {
-    const known = new Set<string>(MEAL_TYPES);
-    const by = new Map<string, FeedItem[]>();
-    for (const f of feed) {
-      const k = f.mealType && known.has(f.mealType) ? f.mealType : "other";
-      by.set(k, [...(by.get(k) ?? []), f]);
-    }
-    const order: string[] = [...MEAL_TYPES, ...(by.has("other") ? ["other"] : [])];
-    return order.map((slot) => {
-      const logs = by.get(slot) ?? [];
-      const kcal = logs.reduce((s, l) => s + l.items.reduce((a, i) => a + i.kcal, 0), 0);
-      const proteinG = logs.reduce((s, l) => s + l.items.reduce((a, i) => a + i.proteinG, 0), 0);
-      return { slot, logs, kcal, proteinG };
-    });
-  }, [feed]);
+  const [changing, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const total = feed.reduce((sum, meal) => sum + meal.items.reduce((kcal, item) => kcal + item.kcal, 0), 0);
 
   const move = (id: string, slot: string) =>
     startTransition(async () => {
+      setError(null);
       const r = await setMealTypeAction(id, slot);
       if (r.ok) router.refresh();
+      else setError(r.error);
     });
   const remove = (id: string) =>
     startTransition(async () => {
+      setError(null);
       const r = await deleteMealLogAction(id);
-      setConfirmDelete(null);
       if (r.ok) router.refresh();
+      else setError(r.error);
     });
 
   return (
-    <section className="mt-2 flex flex-col gap-4">
-      <h2 className="text-sm font-medium text-neutral-500">Today</h2>
-      {groups.map(({ slot, logs, kcal, proteinG }) => (
-        <div key={slot}>
-          <div className="mb-1.5 flex items-baseline justify-between">
-            <h3 className={`text-sm font-semibold ${logs.length === 0 ? "text-neutral-400" : ""}`}>{mealLabel(slot)}</h3>
-            {logs.length > 0 ? (
-              <span className="text-xs text-neutral-500">
-                {Math.round(kcal)} kcal · {Math.round(proteinG)}g P
-              </span>
-            ) : (
-              MEAL_TYPES.includes(slot as MealType) && (
-                <button type="button" className="text-xs text-emerald-600" onClick={() => onLogInto(slot as MealType)}>
-                  + Log {mealLabel(slot).toLowerCase()}
-                </button>
-              )
-            )}
-          </div>
-          {logs.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-neutral-200 px-4 py-2.5 text-xs text-neutral-400 dark:border-neutral-800">Nothing yet</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {logs.map((f) => (
-                <div key={f.id} className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-                  <div className="flex items-center justify-between text-xs text-neutral-500">
-                    <span className="italic text-neutral-400">&quot;{f.rawInput}&quot;</span>
-                    <span>{new Date(f.loggedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                  </div>
-                  <ul className="mt-2 flex flex-col gap-1">
-                    {f.items.map((i) => (
-                      <li key={i.id} className="flex justify-between text-sm">
-                        <span>
-                          {i.name} <span className="text-neutral-400">· {fmt(i.qty)}{i.unit ? ` ${i.unit}` : ""}</span>
-                        </span>
-                        <span className="text-neutral-500">{i.kcal} kcal · {i.proteinG}g P</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-                    <label className="flex items-center gap-1 text-neutral-400">
-                      Move to
-                      <select
-                        className="rounded-md border border-neutral-300 bg-transparent px-1.5 py-0.5 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
-                        value={MEAL_TYPES.includes((f.mealType ?? "") as MealType) ? (f.mealType as string) : ""}
-                        onChange={(e) => e.target.value && move(f.id, e.target.value)}
-                        disabled={busy}
-                      >
-                        {!MEAL_TYPES.includes((f.mealType ?? "") as MealType) && <option value="">—</option>}
-                        {MEAL_TYPES.map((m) => (
-                          <option key={m} value={m}>
-                            {MEAL_LABELS[m]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {confirmDelete === f.id ? (
-                      <span className="flex items-center gap-2">
-                        <button type="button" className="text-red-500" onClick={() => remove(f.id)} disabled={busy}>
-                          Delete
-                        </button>
-                        <button type="button" className="text-neutral-400" onClick={() => setConfirmDelete(null)}>
-                          Keep
-                        </button>
-                      </span>
-                    ) : (
-                      <button type="button" className="text-neutral-400 hover:text-red-500" onClick={() => setConfirmDelete(f.id)} disabled={busy}>
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+    <section className="section" aria-label="Meal journal">
+      <div className="row between flex-wrap">
+        <h2>Meal journal</h2>
+        {feed.length > 0 && <span className="chip">{Math.round(total).toLocaleString("en-IN")} kcal today</span>}
+      </div>
+      {error && <p role="alert" className="small danger mt-2">{error}</p>}
+      {feed.length === 0 && (
+        <div className="card mt-3">
+          <p className="font-semibold">Your plate is still empty.</p>
+          <p className="small muted mt-1">Log a meal above and it will appear here.</p>
         </div>
-      ))}
+      )}
+      {feed.map((meal) => {
+        const calories = meal.items.reduce((sum, item) => sum + item.kcal, 0);
+        const protein = meal.items.reduce((sum, item) => sum + item.proteinG, 0);
+        return (
+          <article className="card mt-3" key={meal.id}>
+            <div className="row between">
+              <div>
+                <p className="eyebrow green">{mealLabel(meal.mealType)}</p>
+                <time className="small muted" dateTime={meal.loggedAt}>{meal.timeLabel}</time>
+              </div>
+              <div className="text-right">
+                <p className="font-semibold">{Math.round(calories)} kcal</p>
+                <p className="small muted">{fmt(protein)} g protein</p>
+              </div>
+            </div>
+            {meal.items.length ? (
+              <ul className="journal-dishes mt-3">
+                {meal.items.map((item) => (
+                  <li className="row between small" key={item.id}>
+                    <strong>{item.name}</strong>
+                    <span className="muted shrink-0">{fmt(item.qty)} {item.unit}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="small mt-3">{meal.rawInput}</p>}
+            <details className="journal-actions mt-2">
+              <summary className="small muted">Edit log</summary>
+              <div className="row between flex-wrap">
+                <MealSelect label={`Meal for ${meal.rawInput}`} value={meal.mealType ?? ""} disabled={busy || changing} onChange={(slot) => move(meal.id, slot)} />
+                <button type="button" className="icon danger shrink-0" aria-label={`Remove log for ${meal.rawInput}`} disabled={busy || changing} onClick={() => remove(meal.id)}>
+                  <Trash2 size={17} aria-hidden="true" />
+                </button>
+              </div>
+            </details>
+          </article>
+        );
+      })}
     </section>
   );
 }

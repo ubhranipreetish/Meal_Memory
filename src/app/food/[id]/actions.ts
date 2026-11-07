@@ -23,6 +23,8 @@ export async function updateFoodAction(raw: unknown): Promise<{ ok: boolean; err
     const input = editSchema.parse(raw);
     await updateFoodNutrition(user.id, input.foodId, input);
     revalidatePath(`/food/${input.foodId}`);
+    revalidatePath("/settings");
+    revalidatePath("/log");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
@@ -37,6 +39,7 @@ export async function toggleFavoriteAction(foodId: string): Promise<{ ok: boolea
   if (!user) return { ok: false };
   await toggleFavorite(user.id, foodId);
   revalidatePath(`/food/${foodId}`);
-  revalidatePath("/history");
+  revalidatePath("/settings");
+  revalidatePath("/log");
   return { ok: true };
 }

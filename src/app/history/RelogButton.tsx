@@ -12,7 +12,7 @@ export function RelogButton({ mealLogId }: { mealLogId: string }) {
 
   return (
     <button
-      className="mt-3 rounded-lg border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-600 disabled:opacity-50"
+      className="secondary small"
       disabled={pending || done}
       onClick={() =>
         startTransition(async () => {

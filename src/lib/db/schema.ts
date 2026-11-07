@@ -8,14 +8,15 @@
  *  - nutrition snapshots are denormalized onto log items so history never
  *    silently changes when a food's macros are edited (RULES.md #12)
  *
- * RLS policies + the pgvector extension are applied via drizzle/0000_rls.sql
- * (Supabase-specific, references auth.uid()).
+ * pgvector is enabled by supabase/bootstrap.sql. RLS and private storage
+ * policies are applied by supabase/rls.sql (Supabase-specific, auth.uid()).
  */
 import {
   boolean,
   customType,
   date,
   integer,
+  index,
   jsonb,
   numeric,
   pgTable,
@@ -85,7 +86,10 @@ export const foodMemory = pgTable("food_memory", {
   timesLogged: integer("times_logged").notNull().default(0),
   lastLoggedAt: timestamp("last_logged_at", { withTimezone: true }),
   ...timestamps(),
-});
+}, (t) => [
+  index("food_memory_user_recent_idx").on(t.userId, t.lastLoggedAt),
+  index("food_memory_user_frequent_idx").on(t.userId, t.timesLogged),
+]);
 
 export const foodAliases = pgTable(
   "food_aliases",
@@ -111,7 +115,10 @@ export const mealLogs = pgTable("meal_logs", {
   inputMode: text("input_mode"), // text | voice | photo | quick_pick
   photoPath: text("photo_path"),
   ...timestamps(),
-});
+}, (t) => [
+  index("meal_logs_user_logged_idx").on(t.userId, t.loggedAt),
+  index("meal_logs_user_type_logged_idx").on(t.userId, t.mealType, t.loggedAt),
+]);
 
 export const mealLogItems = pgTable("meal_log_items", {
   id: id(),
@@ -129,7 +136,7 @@ export const mealLogItems = pgTable("meal_log_items", {
   carbsG: numeric("carbs_g"),
   fatG: numeric("fat_g"),
   ...timestamps(),
-});
+}, (t) => [index("meal_log_items_log_idx").on(t.mealLogId)]);
 
 // ── Exercises & workouts ────────────────────────────────────────────────────
 export const exercises = pgTable("exercises", {
@@ -172,7 +179,7 @@ export const workoutSessions = pgTable("workout_sessions", {
   endedAt: timestamp("ended_at", { withTimezone: true }),
   notes: text("notes"),
   ...timestamps(),
-});
+}, (t) => [index("workout_sessions_user_started_idx").on(t.userId, t.startedAt)]);
 
 export const sessionSets = pgTable("session_sets", {
   id: id(),
@@ -187,7 +194,10 @@ export const sessionSets = pgTable("session_sets", {
   rpe: numeric("rpe"),
   isPr: boolean("is_pr").notNull().default(false),
   ...timestamps(),
-});
+}, (t) => [
+  index("session_sets_session_idx").on(t.sessionId),
+  index("session_sets_user_exercise_idx").on(t.userId, t.exerciseId, t.createdAt),
+]);
 
 // ── Daily metric logs ───────────────────────────────────────────────────────
 export const weightLogs = pgTable("weight_logs", {
@@ -196,7 +206,7 @@ export const weightLogs = pgTable("weight_logs", {
   date: date("date").notNull(),
   weightKg: numeric("weight_kg").notNull(),
   ...timestamps(),
-});
+}, (t) => [index("weight_logs_user_date_idx").on(t.userId, t.date)]);
 
 export const waterLogs = pgTable("water_logs", {
   id: id(),
@@ -204,7 +214,7 @@ export const waterLogs = pgTable("water_logs", {
   loggedAt: timestamp("logged_at", { withTimezone: true }).notNull().defaultNow(),
   ml: integer("ml").notNull(),
   ...timestamps(),
-});
+}, (t) => [index("water_logs_user_logged_idx").on(t.userId, t.loggedAt)]);
 
 export const sleepLogs = pgTable("sleep_logs", {
   id: id(),

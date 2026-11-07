@@ -9,7 +9,9 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "",
+    // Prefer a direct/session-pooler connection for schema operations. The
+    // runtime DATABASE_URL can stay on Supabase's transaction pooler.
+    url: process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? "",
   },
   // Supabase manages the auth/storage schemas — only touch our own tables.
   schemaFilter: ["public"],

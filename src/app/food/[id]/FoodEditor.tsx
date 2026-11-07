@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { Star } from "lucide-react";
 import { toggleFavoriteAction, updateFoodAction } from "./actions";
 
 interface Food {
@@ -47,53 +48,47 @@ export function FoodEditor({ food }: { food: Food }) {
     });
   }
 
-  const cls =
-    "w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700";
-
   return (
-    <section className="rounded-2xl border border-neutral-200 p-5 dark:border-neutral-800">
-      <div className="flex items-start justify-between">
+    <section className="card section">
+      <div className="row between">
         <div>
-          <h1 className="text-xl font-semibold">{food.name}</h1>
-          <p className="text-sm text-neutral-500">per {food.servingQty} {food.unit}</p>
+          <h2>{food.name}</h2>
+          <p className="small muted">
+            per {food.servingQty > 1 ? `${food.servingQty} ` : ""}
+            {food.unit}
+          </p>
         </div>
         <button
-          className={`text-2xl ${food.isFavorite ? "text-amber-500" : "text-neutral-300 dark:text-neutral-700"}`}
-          onClick={() => startTransition(async () => { await toggleFavoriteAction(food.id); router.refresh(); })}
-          aria-label="Toggle favorite"
+          className="icon green"
+          aria-label={`${food.isFavorite ? "Unfavourite" : "Favourite"} ${food.name}`}
+          aria-pressed={food.isFavorite}
+          onClick={() =>
+            startTransition(async () => {
+              await toggleFavoriteAction(food.id);
+              router.refresh();
+            })
+          }
         >
-          ★
+          <Star size={20} fill={food.isFavorite ? "currentColor" : "none"} />
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        {(
-          [
-            ["kcal", "Calories (kcal)"],
-            ["proteinG", "Protein (g)"],
-            ["carbsG", "Carbs (g)"],
-            ["fatG", "Fat (g)"],
-          ] as const
-        ).map(([k, label]) => (
-          <label key={k} className="flex flex-col gap-1 text-xs text-neutral-500">
+      <div className="grid2 mt-4">
+        {([
+          ["kcal", "Calories · kcal"],
+          ["proteinG", "Protein · g"],
+          ["carbsG", "Carbs · g"],
+          ["fatG", "Fat · g"],
+        ] as const).map(([k, label]) => (
+          <label key={k} className="small muted">
             {label}
-            <input
-              type="number"
-              step="any"
-              className={cls}
-              value={v[k]}
-              onChange={(e) => setV({ ...v, [k]: e.target.value })}
-            />
+            <input className="field mt-1" type="number" min="0" step="any" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} />
           </label>
         ))}
       </div>
 
-      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
-      <button
-        className="mt-4 rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-40"
-        onClick={save}
-        disabled={pending || !dirty}
-      >
+      {error && <p className="small danger mt-2">{error}</p>}
+      <button className="primary mt-4" onClick={save} disabled={pending || !dirty} style={{ opacity: pending || !dirty ? 0.4 : 1 }}>
         {saved ? "Saved ✓" : pending ? "Saving…" : "Save changes"}
       </button>
     </section>

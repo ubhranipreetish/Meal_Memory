@@ -7,6 +7,7 @@ import { eq, sql as dsql } from "drizzle-orm";
 import { aiClient } from "@/lib/ai/client";
 import { getDb, schema } from "@/lib/db";
 import { deriveSignals, getCoachContext, type CoachContext } from "@/lib/services/metrics";
+import { dateKey } from "@/lib/time";
 
 const BRIEF_SYSTEM = `You are a supportive, no-nonsense personal fitness coach inside a tracking app.
 You receive the user's computed metrics as JSON. Rules:
@@ -33,7 +34,7 @@ export async function generateDailyBrief(userId: string): Promise<string> {
   });
 
   const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = dateKey();
   // one brief per day — replace if regenerated
   await db
     .delete(schema.coachNotes)
@@ -52,7 +53,7 @@ export async function generateDailyBrief(userId: string): Promise<string> {
 
 export async function getTodayBrief(userId: string): Promise<string | null> {
   const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = dateKey();
   const [row] = await db
     .select({ content: schema.coachNotes.content })
     .from(schema.coachNotes)

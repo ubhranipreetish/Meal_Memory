@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { exerciseHistory } from "@/lib/services/workouts";
-import { BottomNav } from "@/components/BottomNav";
+import { AppShell } from "@/components/AppShell";
 import { ExerciseChart } from "./ExerciseChart";
 
 export const dynamic = "force-dynamic";
@@ -22,43 +22,39 @@ export default async function ExerciseHistoryPage({ params }: { params: Promise<
   const last = data.series[data.series.length - 1];
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 px-5 pb-24 pt-8">
-      <Link href="/workout" className="text-sm text-neutral-500 underline underline-offset-4">← Workout</Link>
-      <div>
-        <h1 className="text-2xl font-semibold">{data.exercise.name}</h1>
-        <p className="mt-0.5 text-sm capitalize text-neutral-500">{data.exercise.muscleGroup}</p>
-      </div>
-
+    <AppShell
+      active="/workout"
+      eyebrow={data.exercise.muscleGroup ?? "EXERCISE"}
+      aside={<Link href="/workout" style={{ color: "inherit" }}>← Workout</Link>}
+      title={data.exercise.name}
+      subtitle="Every set you've logged for this lift."
+    >
       {data.series.length === 0 ? (
-        <p className="text-sm text-neutral-400">No sets logged yet for this exercise.</p>
+        <p className="small muted section">No sets logged yet for this exercise.</p>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid2 section">
             <Stat label="Best" value={`${data.bestWeight} kg`} />
             <Stat label="Sessions" value={String(data.series.length)} />
-            {first && last && (
-              <Stat
-                label="Progress"
-                value={`${first.topWeight}→${last.topWeight} kg`}
-              />
-            )}
+            {first && last && <Stat label="Progress" value={`${first.topWeight}→${last.topWeight} kg`} />}
           </div>
-          <section className="rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
-            <h2 className="mb-3 text-sm font-medium text-neutral-500">Top set weight over time</h2>
-            <ExerciseChart series={data.series} />
+          <section className="card section">
+            <h2>Top set weight over time</h2>
+            <div className="chart mt-3">
+              <ExerciseChart series={data.series} />
+            </div>
           </section>
         </>
       )}
-      <BottomNav active="/workout" />
-    </main>
+    </AppShell>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 p-3 text-center dark:border-neutral-800">
-      <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
-      <div className="mt-0.5 text-sm font-semibold">{value}</div>
+    <div>
+      <p className="small muted">{label}</p>
+      <p className="metric">{value}</p>
     </div>
   );
 }

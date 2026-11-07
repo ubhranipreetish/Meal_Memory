@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getDb, schema } from "@/lib/db";
 import { calcTargets } from "@/lib/services/targets";
@@ -63,5 +64,7 @@ export async function saveProfile(raw: unknown): Promise<OnboardingResult> {
     .values(row)
     .onConflictDoUpdate({ target: schema.profiles.id, set: row });
 
+  revalidatePath("/settings");
+  revalidatePath("/home");
   redirect("/home");
 }

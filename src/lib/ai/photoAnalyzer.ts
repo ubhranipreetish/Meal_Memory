@@ -32,6 +32,7 @@ export async function analyzeMealPhoto(
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(30_000),
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: PHOTO_SYSTEM }] },
       contents: [

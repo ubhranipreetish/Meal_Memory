@@ -13,6 +13,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../src/lib/db";
 import { confirmAndLog, resolveUtterance } from "../src/lib/services/foodMemory";
 import { searchHistory, updateFoodNutrition, quickLogFood } from "../src/lib/services/history";
+import type { ConfirmLogInput } from "../src/types/food";
 
 const userId = process.argv[2];
 if (!userId) {
@@ -22,7 +23,12 @@ if (!userId) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function seedFood(name: string, unit: string, kcal: number, proteinG: number) {
+async function seedFood(
+  name: string,
+  unit: ConfirmLogInput["items"][number]["unit"],
+  kcal: number,
+  proteinG: number,
+) {
   await confirmAndLog(userId, {
     raw: `seed: 1 ${unit} ${name}`,
     mealType: "snack",

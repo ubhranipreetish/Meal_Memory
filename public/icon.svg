@@ -1,4 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#059669"/>
-  <text x="256" y="330" font-size="240" text-anchor="middle" font-family="system-ui">🏋️</text>
+  <rect width="512" height="512" rx="112" fill="#19251c"/>
+  <circle cx="256" cy="256" r="153" fill="#222f25" stroke="#b8eb81" stroke-width="20"/>
+  <path d="M190 177a103 103 0 0 0 0 158m132-158a103 103 0 0 1 0 158" fill="none" stroke="#70935b" stroke-width="12" stroke-linecap="round"/>
+  <path d="M222 180h68a12 12 0 0 1 12 12v138l-46-28-46 28V192a12 12 0 0 1 12-12Z" fill="#b8eb81"/>
 </svg>

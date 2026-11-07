@@ -61,7 +61,7 @@ export const onboardingSchema = z.object({
   weightKg: z.coerce.number().min(30).max(300),
   goal: z.enum(GOALS),
   activityLevel: z.enum(ACTIVITY_LEVELS),
-  gymExperience: z.enum(GYM_EXPERIENCE, { message: "Pick your gym experience" }),
+  gymExperience: z.enum(GYM_EXPERIENCE).optional(),
   dietType: z.enum(DIET_TYPES, { message: "Pick your diet" }),
   allergies: z.array(z.string()).optional(),
   foodsAvoided: z.array(z.string()).optional(),

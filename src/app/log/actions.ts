@@ -11,9 +11,11 @@ import {
   resolveParsedItems,
   resolveUtterance,
   setMealLogType,
-  suggestMealType,
+  inferMealType,
 } from "@/lib/services/foodMemory";
 import { MEAL_TYPES, confirmLogSchema, type ResolvedLog } from "@/types/food";
+import { validateBase64Upload } from "@/lib/uploadValidation";
+import { z } from "zod";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -31,8 +33,9 @@ export type ParseActionResult =
 export async function parseAction(utterance: string): Promise<ParseActionResult> {
   try {
     const user = await requireUser();
+    const text = z.string().trim().min(1, "Describe what you ate").max(1000, "Keep the description under 1,000 characters").parse(utterance);
     const t0 = Date.now();
-    const resolved = await resolveUtterance(user.id, utterance.trim());
+    const resolved = await resolveUtterance(user.id, text);
     return { ok: true, resolved, tookMs: Date.now() - t0 };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Parsing failed" };
@@ -47,19 +50,19 @@ export type PhotoActionResult =
 export async function photoAction(imageBase64: string, mimeType: string): Promise<PhotoActionResult> {
   try {
     const user = await requireUser();
+    const upload = validateBase64Upload(imageBase64, mimeType, "photo");
     const t0 = Date.now();
-    const parsed = await analyzeMealPhoto(imageBase64, mimeType);
+    const parsed = await analyzeMealPhoto(imageBase64, upload.mimeType);
     const items = await resolveParsedItems(user.id, parsed.items);
 
     // Best-effort photo upload (session-scoped client → per-user folder RLS).
     let photoPath: string | undefined;
     try {
       const supabase = await createClient();
-      const ext = mimeType.includes("png") ? "png" : "jpg";
-      const path = `${user.id}/${Date.now()}.${ext}`;
+      const path = `${user.id}/${Date.now()}.${upload.extension}`;
       const { error } = await supabase.storage
         .from("meal-photos")
-        .upload(path, Buffer.from(imageBase64, "base64"), { contentType: mimeType });
+        .upload(path, upload.buffer, { contentType: upload.mimeType });
       if (!error) photoPath = path;
     } catch {
       /* photo storage is optional — never blocks logging */
@@ -67,7 +70,7 @@ export async function photoAction(imageBase64: string, mimeType: string): Promis
 
     const resolved: ResolvedLog = {
       raw: "[photo] meal photo",
-      mealType: parsed.mealType ?? (await suggestMealType(user.id)),
+      mealType: parsed.mealType ?? inferMealType(),
       mealTypeExplicit: parsed.mealType != null,
       waterMl: parsed.waterMl ?? undefined,
       items,
@@ -92,12 +95,13 @@ export type VoiceActionResult =
 export async function voiceAction(audioBase64: string, mimeType: string): Promise<VoiceActionResult> {
   try {
     const user = await requireUser();
+    const upload = validateBase64Upload(audioBase64, mimeType, "audio");
     const t0 = Date.now();
-    const parsed = await parseMealAudio(audioBase64, mimeType);
+    const parsed = await parseMealAudio(audioBase64, upload.mimeType);
     const items = await resolveParsedItems(user.id, parsed.items);
     const resolved: ResolvedLog = {
       raw: parsed.transcript || "[voice] meal",
-      mealType: parsed.mealType ?? (await suggestMealType(user.id)),
+      mealType: parsed.mealType ?? inferMealType(),
       mealTypeExplicit: parsed.mealType != null,
       waterMl: parsed.waterMl ?? undefined,
       items,
@@ -123,8 +127,9 @@ export type ReestimateActionResult =
 export async function reestimateUnitAction(name: string, unit: string): Promise<ReestimateActionResult> {
   try {
     await requireUser();
-    if (!name.trim()) throw new Error("Name the food first");
-    const e = await estimateForUnit(name.trim(), unit);
+    const safeName = z.string().trim().min(1, "Name the food first").max(120).parse(name);
+    const safeUnit = z.enum(["piece", "slice", "bowl", "plate", "glass", "cup", "scoop", "tbsp", "tsp", "serving", "g", "ml"]).parse(unit);
+    const e = await estimateForUnit(safeName, safeUnit);
     return {
       ok: true,
       perUnit: { kcal: e.kcal, proteinG: e.proteinG, carbsG: e.carbsG, fatG: e.fatG },
@@ -145,6 +150,8 @@ export async function confirmAction(raw: unknown): Promise<ConfirmActionResult> 
     const user = await requireUser();
     const input = confirmLogSchema.parse(raw);
     await confirmAndLog(user.id, input);
+    revalidatePath("/history");
+    revalidatePath("/settings");
     revalidatePath("/log");
     revalidatePath("/home");
     return { ok: true };
@@ -160,6 +167,7 @@ export async function deleteMealLogAction(mealLogId: string): Promise<ConfirmAct
     revalidatePath("/log");
     revalidatePath("/home");
     revalidatePath("/history");
+    revalidatePath("/settings");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
@@ -174,6 +182,7 @@ export async function setMealTypeAction(mealLogId: string, mealType: string): Pr
     await setMealLogType(user.id, mealLogId, t);
     revalidatePath("/log");
     revalidatePath("/history");
+    revalidatePath("/settings");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Update failed" };

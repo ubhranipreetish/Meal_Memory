@@ -83,6 +83,7 @@ async function geminiGenerate(opts: GenerateOptions): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
     });
     if (res.ok || attempt >= 2 || (res.status !== 503 && res.status !== 429)) break;
     lastBody = await res.text().catch(() => "");

@@ -3,7 +3,8 @@
  * Editing a food's nutrition NEVER rewrites past meal_log_items — those are
  * denormalized snapshots (RULES.md #12).
  */
-import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { normalizeAlooParatha } from "./quickParse";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import type { MealType } from "@/types/food";
 
@@ -15,32 +16,34 @@ export interface HistoryFilter {
   limit?: number;
 }
 
-/**
- * Search meal logs by text (raw utterance or food name) and meal type.
- * Single round trip (CTE + join) — cloud DB latency makes sequential queries
- * blow the <500ms budget.
- */
-export async function searchHistory(userId: string, f: HistoryFilter = {}) {
-  const db = getDb();
-  const limit = Math.min(f.limit ?? 50, 200);
-  const q = f.q?.trim() ? `%${f.q.trim()}%` : null;
+export function searchHistory(userId: string, filter: HistoryFilter = {}) {
+  return readMealLogs(userId, { ...filter, limit: Math.min(filter.limit ?? 50, 200) });
+}
 
+/** Read every meal snapshot in the selected date window. */
+export function readMealWindow(userId: string, start: Date, end: Date) {
+  return readMealLogs(userId, { start, end });
+}
+
+async function readMealLogs(userId: string, filter: HistoryFilter & { start?: Date; end?: Date }) {
+  const db = getDb();
+  const q = filter.q?.trim() ? `%${filter.q.trim()}%` : null;
   const rows = (await db.execute(sql`
     with logs as (
       select ml.id, ml.logged_at, ml.meal_type, ml.raw_input
       from meal_logs ml
       where ml.user_id = ${userId}
-        ${f.mealType ? sql`and ml.meal_type = ${f.mealType}` : sql``}
-        ${
-          q
-            ? sql`and (ml.raw_input ilike ${q} or exists (
-                 select 1 from meal_log_items i2
-                 join food_memory f2 on f2.id = i2.food_memory_id
-                 where i2.meal_log_id = ml.id and f2.canonical_name ilike ${q}))`
-            : sql``
-        }
+        ${filter.start ? sql`and ml.logged_at >= ${filter.start.toISOString()}` : sql``}
+        ${filter.end ? sql`and ml.logged_at < ${filter.end.toISOString()}` : sql``}
+        ${filter.mealType ? sql`and ml.meal_type = ${filter.mealType}` : sql``}
+        ${q ? sql`and (ml.raw_input ilike ${q} or exists (
+          select 1 from meal_log_items item
+          left join food_memory food on food.id = item.food_memory_id and food.user_id = ml.user_id
+          where item.meal_log_id = ml.id
+            and (item.name ilike ${q} or food.canonical_name ilike ${q})
+        ))` : sql``}
       order by ml.logged_at desc
-      limit ${limit}
+      ${filter.limit !== undefined ? sql`limit ${filter.limit}` : sql``}
     )
     select l.id as log_id, l.logged_at, l.meal_type, l.raw_input,
            i.id as item_id, i.food_memory_id, i.qty, i.unit, i.kcal, i.protein_g,
@@ -77,7 +80,7 @@ export async function searchHistory(userId: string, f: HistoryFilter = {}) {
     }
     if (r.item_id != null) {
       const entry = byLog.get(logId)!;
-      const kcal = Math.round(Number(r.kcal ?? 0));
+      const kcal = num(r.kcal as string | null);
       entry.totalKcal += kcal;
       entry.items.push({
         id: String(r.item_id),
@@ -86,47 +89,42 @@ export async function searchHistory(userId: string, f: HistoryFilter = {}) {
         qty: Number(r.qty ?? 0),
         unit: (r.unit as string | null) ?? null,
         kcal,
-        proteinG: Math.round(Number(r.protein_g ?? 0)),
+        proteinG: num(r.protein_g as string | null),
       });
     }
   }
   return [...byLog.values()];
 }
 
-/** Food lists for tabs + quick-pick chips. */
-export async function listFoods(
-  userId: string,
-  kind: "recent" | "frequent" | "favorites",
-  limit = 12,
-) {
+/** All saved foods, grouped by the meal where each was last logged. */
+export async function listSavedFoods(userId: string) {
   const db = getDb();
-  const base = db.select().from(schema.foodMemory);
-  const rows =
-    kind === "favorites"
-      ? await base
-          .where(and(eq(schema.foodMemory.userId, userId), eq(schema.foodMemory.isFavorite, true)))
-          .orderBy(desc(schema.foodMemory.lastLoggedAt))
-          .limit(limit)
-      : kind === "frequent"
-        ? await base
-            .where(eq(schema.foodMemory.userId, userId))
-            .orderBy(desc(schema.foodMemory.timesLogged))
-            .limit(limit)
-        : await base
-            .where(eq(schema.foodMemory.userId, userId))
-            .orderBy(desc(schema.foodMemory.lastLoggedAt))
-            .limit(limit);
-
-  return rows.map((m) => ({
-    id: m.id,
-    name: m.canonicalName,
-    unit: m.servingUnit,
-    servingQty: Number(m.servingQty) || 1,
-    kcal: Math.round(num(m.kcal)),
-    proteinG: Math.round(num(m.proteinG)),
-    timesLogged: m.timesLogged,
-    isFavorite: m.isFavorite,
-    source: m.source,
+  const rows = await db.execute<{
+    id: string; name: string; unit: string; serving_qty: string; kcal: string | null;
+    is_favorite: boolean; meal_type: string | null;
+  }>(sql`
+    select f.id, f.canonical_name as name, f.serving_unit as unit, f.serving_qty,
+           f.kcal, f.is_favorite, latest.meal_type
+    from food_memory f
+    left join lateral (
+      select m.meal_type
+      from meal_log_items i
+      join meal_logs m on m.id = i.meal_log_id and m.user_id = f.user_id
+      where i.food_memory_id = f.id and i.user_id = f.user_id
+      order by m.logged_at desc, m.id desc
+      limit 1
+    ) latest on true
+    where f.user_id = ${userId}
+    order by f.is_favorite desc, lower(f.canonical_name), f.id
+  `);
+  return rows.map((food) => ({
+    id: food.id,
+    name: normalizeAlooParatha(food.name),
+    unit: food.unit,
+    servingQty: Number(food.serving_qty) || 1,
+    kcal: Math.round(num(food.kcal)),
+    isFavorite: food.is_favorite,
+    mealType: food.meal_type,
   }));
 }
 
@@ -198,36 +196,38 @@ export async function quickLogFood(userId: string, foodMemoryId: string, qty?: n
   const perQty = Number(m.servingQty) || 1;
   const q = qty ?? perQty;
   const f = q / perQty;
-  const { suggestMealType } = await import("./foodMemory");
-  const [log] = await db
-    .insert(schema.mealLogs)
-    .values({
+  const { inferMealType } = await import("./foodMemory");
+  return db.transaction(async (tx) => {
+    const [log] = await tx
+      .insert(schema.mealLogs)
+      .values({
+        userId,
+        loggedAt: now,
+        mealType: mealType ?? inferMealType(now),
+        rawInput: `${q} ${m.servingUnit} ${m.canonicalName}`,
+        inputMode: "quick_pick",
+      })
+      .returning({ id: schema.mealLogs.id });
+
+    await tx.insert(schema.mealLogItems).values({
       userId,
-      loggedAt: now,
-      mealType: mealType ?? (await suggestMealType(userId, now)),
-      rawInput: `${q} ${m.servingUnit} ${m.canonicalName}`,
-      inputMode: "quick_pick",
-    })
-    .returning({ id: schema.mealLogs.id });
+      mealLogId: log.id,
+      foodMemoryId: m.id,
+      name: normalizeAlooParatha(m.canonicalName),
+      qty: String(q),
+      unit: m.servingUnit,
+      kcal: String(num(m.kcal) * f),
+      proteinG: String(num(m.proteinG) * f),
+      carbsG: String(num(m.carbsG) * f),
+      fatG: String(num(m.fatG) * f),
+    });
+    await tx
+      .update(schema.foodMemory)
+      .set({ timesLogged: sql`${schema.foodMemory.timesLogged} + 1`, lastLoggedAt: now })
+      .where(eq(schema.foodMemory.id, m.id));
 
-  await db.insert(schema.mealLogItems).values({
-    userId,
-    mealLogId: log.id,
-    foodMemoryId: m.id,
-    name: m.canonicalName,
-    qty: String(q),
-    unit: m.servingUnit,
-    kcal: String(num(m.kcal) * f),
-    proteinG: String(num(m.proteinG) * f),
-    carbsG: String(num(m.carbsG) * f),
-    fatG: String(num(m.fatG) * f),
+    return { mealLogId: log.id };
   });
-  await db
-    .update(schema.foodMemory)
-    .set({ timesLogged: sql`${schema.foodMemory.timesLogged} + 1`, lastLoggedAt: now })
-    .where(eq(schema.foodMemory.id, m.id));
-
-  return { mealLogId: log.id };
 }
 
 /** Food detail with aliases + recent log stats. */
@@ -245,7 +245,7 @@ export async function getFood(userId: string, foodId: string) {
     .where(eq(schema.foodAliases.foodMemoryId, foodId));
   return {
     id: m.id,
-    name: m.canonicalName,
+    name: normalizeAlooParatha(m.canonicalName),
     unit: m.servingUnit,
     servingQty: Number(m.servingQty) || 1,
     kcal: num(m.kcal),

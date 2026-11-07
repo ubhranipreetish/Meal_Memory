@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aliasCandidates,
   normalizeAlias,
+  normalizeAlooParatha,
   quickParseSegments,
   quickParseWater,
 } from "./quickParse";
@@ -16,6 +17,19 @@ describe("aliasCandidates", () => {
   it("adds singular variants", () => {
     expect(aliasCandidates("aloo parathas")).toContain("aloo paratha");
     expect(aliasCandidates("Rotis")).toContain("roti");
+  });
+});
+
+describe("aloo paratha spellings", () => {
+  it("preserves the full dish and quantity wording", () => {
+    expect(normalizeAlooParatha("three ALU paratas with curd")).toBe("three Aloo Parathas with curd");
+    expect(normalizeAlooParatha("paneer paratha and aloo sabzi")).toBe("paneer paratha and aloo sabzi");
+  });
+
+  it("can find both canonical and older saved dish spellings", () => {
+    expect(aliasCandidates("ALU paratas")).toContain("aloo paratha");
+    expect(aliasCandidates("aloo paratha")).toContain("alu paratha");
+    expect(aliasCandidates("aloo paratha")).not.toContain("alu");
   });
 });
 

@@ -9,6 +9,9 @@ interface WeightPoint { date: string; kg: number; trend: number }
 interface Measurement { date: string; chestCm: string | null; waistCm: string | null; hipsCm: string | null; armCm: string | null; thighCm: string | null }
 interface ReportCard { id: string; type: string; date: string; summary: string; metrics: Record<string, number>; deltas: { key: string; delta: number }[] }
 
+const MAX_REPORT_BYTES = 5 * 1024 * 1024;
+const REPORT_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+
 export function ProgressClient({ weights, measurements, reports }: { weights: WeightPoint[]; measurements: Measurement[]; reports: ReportCard[] }) {
   const router = useRouter();
   const [busy, startTransition] = useTransition();
@@ -17,7 +20,7 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
   const fileRef = useRef<HTMLInputElement>(null);
 
   const chartData = weights.map((w) => ({
-    label: new Date(w.date).toLocaleDateString([], { day: "numeric", month: "short" }),
+    label: new Date(`${w.date}T00:00:00`).toLocaleDateString([], { day: "numeric", month: "short" }),
     kg: w.kg,
     trend: Math.round(w.trend * 10) / 10,
   }));
@@ -32,6 +35,14 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
   }
 
   function onReportPicked(f: File) {
+    if (!REPORT_TYPES.has(f.type)) {
+      setMsg("Choose a PDF, JPEG, PNG, or WebP report.");
+      return;
+    }
+    if (f.size > MAX_REPORT_BYTES) {
+      setMsg("Reports must be 5 MB or smaller.");
+      return;
+    }
     setMsg("Reading report…");
     const reader = new FileReader();
     reader.onload = () => {
@@ -45,14 +56,14 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
     reader.readAsDataURL(f);
   }
 
-  const cls = "w-full rounded-lg border border-neutral-300 bg-transparent px-2.5 py-2 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700";
+  const cls = "field mt-1";
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="spaced">
       {msg && <p className="text-sm text-emerald-600">{msg}</p>}
 
-      <section className="rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
-        <h2 className="text-sm font-medium text-neutral-500">Weight (with 7-day trend)</h2>
+      <section className="card">
+        <h2>Weight (with 7-day trend)</h2>
         {chartData.length < 2 ? (
           <p className="mt-2 text-sm text-neutral-400">Log your weight from the Home screen to see the chart.</p>
         ) : (
@@ -71,21 +82,21 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
         )}
       </section>
 
-      <section className="rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
-        <h2 className="text-sm font-medium text-neutral-500">Measurements (cm)</h2>
-        <div className="mt-2 grid grid-cols-5 gap-2">
+      <section className="card">
+        <h2>Measurements (cm)</h2>
+        <div className="grid2 mt-3">
           {(["chestCm", "waistCm", "hipsCm", "armCm", "thighCm"] as const).map((k) => (
-            <label key={k} className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500">
+            <label key={k} className="small muted">
               {k.replace("Cm", "")}
               <input type="number" step="any" className={cls} value={m[k]} onChange={(e) => setM({ ...m, [k]: e.target.value })} />
             </label>
           ))}
         </div>
-        <button className="mt-3 rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50" onClick={saveMeasurements} disabled={busy}>
+        <button className="primary mt-3" onClick={saveMeasurements} disabled={busy}>
           Save today&apos;s measurements
         </button>
         {measurements.length > 0 && (
-          <ul className="mt-3 flex flex-col gap-1 text-xs text-neutral-500">
+          <ul className="spaced mt-3 small muted">
             {measurements.slice(0, 5).map((mm, i) => (
               <li key={i}>
                 {mm.date}: {[["chest", mm.chestCm], ["waist", mm.waistCm], ["hips", mm.hipsCm], ["arm", mm.armCm], ["thigh", mm.thighCm]]
@@ -98,10 +109,10 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
         )}
       </section>
 
-      <section className="rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-neutral-500">Body reports (InBody / DEXA / blood)</h2>
-          <button className="text-xs text-emerald-600 underline underline-offset-2" onClick={() => fileRef.current?.click()} disabled={busy}>
+      <section className="card">
+        <div className="row between">
+          <h2>Body reports (InBody / DEXA / blood)</h2>
+          <button className="green small" onClick={() => fileRef.current?.click()} disabled={busy}>
             + upload
           </button>
           <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden"
@@ -111,12 +122,12 @@ export function ProgressClient({ weights, measurements, reports }: { weights: We
         <div className="mt-2 flex flex-col gap-3">
           {reports.map((r) => (
             <div key={r.id} className="rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
-              <div className="flex justify-between text-xs text-neutral-500">
+              <div className="row between small muted">
                 <span className="uppercase">{r.type}</span><span>{r.date}</span>
               </div>
               <p className="mt-1.5 text-sm leading-relaxed">{r.summary}</p>
               {Object.keys(r.metrics).length > 0 && (
-                <p className="mt-2 text-xs text-neutral-500">
+                <p className="small muted mt-2">
                   {Object.entries(r.metrics).slice(0, 6).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join(" · ")}
                 </p>
               )}

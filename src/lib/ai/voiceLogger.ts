@@ -24,12 +24,14 @@ const VOICE_SYSTEM = `You are the voice food-logging engine of a personal fitnes
 The user speaks what they ate. The audio may be English, Hindi, Hinglish (Hindi in Latin letters) or a mix — identify it yourself; the user never tells you which.
 
 Transcription:
-- "transcript" is EXACTLY what was said, verbatim, in the language and script it was spoken in. Hindi speech stays in Devanagari; Hinglish stays in Latin letters.
+- "transcript" is what was said, verbatim — but ALWAYS written in the Latin alphabet, never in Devanagari or any other script. Romanise Hindi words the way Indians type them in chat: "चार आलू पराठे" is transcribed as "chaar aloo parathe", "दो रोटी और एक कटोरी दाल" as "do roti aur ek katori dal".
+- Keep the user's own words and word order — do NOT translate to English. "char uble ande" stays "char uble ande", not "four boiled eggs".
 - Never add timestamps, speaker labels, punctuation commentary or a translation to the transcript.
 - "language" is the detected language: "en", "hi", or "hinglish".
 
 Parsing:
 - Parse the spoken foods into items using the SAME rules as typed logs: item names always in English title-case, allowed units only, totals for the whole quantity eaten.
+- Treat "alu paratha" and "aloo parathe" as one dish named "Aloo Paratha". Keep both words in the dish name.
 - NEVER invent a food that was not spoken. If you hear a container ("a glass", "one bowl") but cannot make out what is in it, leave that item out rather than guessing water or milk.
 - If the audio is silent, unintelligible, or is not about food, return an empty items array and put whatever you did hear in the transcript.
 - Speech recognition of Indian food words is error-prone: prefer the plausible Indian food over a similar-sounding English word ("char uble ande" is four boiled eggs, not "chart").`;
@@ -57,6 +59,7 @@ export async function parseMealAudio(audioBase64: string, mimeType = "audio/wav"
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(30_000),
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: VOICE_SYSTEM }] },
       // Audio only — an extra text part would get transcribed into the transcript.

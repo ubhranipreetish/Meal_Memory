@@ -20,18 +20,18 @@ const display = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-  title: "Personal Gym",
-  description: "AI fitness companion — log food naturally, track workouts, get coached.",
+  title: "MealMemory",
+  description: "A calorie tracker for Indian home cooking that remembers the foods you log.",
   manifest: "/manifest.json",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Personal Gym" },
-  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "MealMemory" },
+  icons: { icon: "/icon.svg", apple: "/apple-touch-icon.png" },
 };
 
 export const viewport = {
-  themeColor: "#059669",
+  themeColor: "#19251c",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1, // prevents iOS zoom-on-input-focus jank
+  viewportFit: "cover"
 };
 
 export default function RootLayout({
@@ -42,8 +42,22 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      // the theme script below adds `light` to this element before hydration,
+      // so the server and client class lists differ by design
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${display.variable} h-full antialiased`}
     >
+      <head>
+        {/*
+          Apply the saved theme before first paint. Without this the app renders
+          dark and then snaps to light, which is worse than either theme.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem('pg-theme')==='light')document.documentElement.classList.add('light')}catch(e){}`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

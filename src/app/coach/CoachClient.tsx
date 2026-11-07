@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Send, Sparkles } from "lucide-react";
 import type { ChatTurn } from "@/lib/ai/coach";
 import { chatAction, regenerateBriefAction } from "./actions";
 
@@ -37,56 +38,65 @@ export function CoachClient({ initialBrief }: { initialBrief: string | null }) {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4">
-      <section className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Today&apos;s brief</h2>
-          <button className="text-xs text-emerald-600 underline underline-offset-2 disabled:opacity-50" onClick={refreshBrief} disabled={busy}>
-            {brief ? "refresh" : busy ? "thinking…" : "generate"}
+    <>
+      <section className="card section">
+        <div className="row between">
+          <div className="row green">
+            <Sparkles size={20} />
+            <span className="eyebrow">TODAY&rsquo;S BRIEF</span>
+          </div>
+          <button className="small green" onClick={refreshBrief} disabled={busy}>
+            {busy ? "thinking…" : brief ? "refresh" : "generate"}
           </button>
         </div>
         {brief ? (
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{brief}</p>
+          <p className="mt-3 whitespace-pre-wrap">{brief}</p>
         ) : (
-          <p className="mt-2 text-sm text-neutral-500">
-            No brief yet today — tap generate and I&apos;ll look at your data.
-          </p>
+          <p className="small muted mt-3">No brief yet today — tap generate and I&rsquo;ll look at your data.</p>
         )}
       </section>
 
-      <section className="flex flex-1 flex-col gap-3">
+      <section className="section">
+        {turns.length === 0 && (
+          <div className="bubble">
+            <p className="eyebrow green mb-2">YOUR COACH</p>
+            Ask me anything about your food, your training or how the week&rsquo;s going.
+          </div>
+        )}
         {turns.map((t, i) => (
-          <div
-            key={i}
-            className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-              t.role === "user"
-                ? "self-end bg-emerald-400 text-emerald-950"
-                : "self-start border border-neutral-200 dark:border-neutral-800"
-            }`}
-          >
+          <div key={i} className={"bubble " + (t.role === "user" ? "user" : "")} style={{ whiteSpace: "pre-wrap" }}>
             {t.text}
           </div>
         ))}
-        {busy && turns.at(-1)?.role === "user" && (
-          <div className="self-start rounded-2xl border border-neutral-200 px-4 py-2.5 text-sm text-neutral-400 dark:border-neutral-800">
-            thinking…
-          </div>
-        )}
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {busy && turns.at(-1)?.role === "user" && <div className="bubble muted">thinking…</div>}
+        {error && <p className="small danger">{error}</p>}
       </section>
 
-      <form onSubmit={send} className="sticky bottom-16 flex gap-2 bg-inherit pt-1">
-        <input
-          className="flex-1 rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700 dark:bg-neutral-950"
-          placeholder='Ask anything — "how much protein left today?"'
+      {turns.length === 0 && (
+        <div className="chips">
+          {["How much protein do I have left today?", "What should I eat for dinner?", "How was my week?"].map((q) => (
+            <button key={q} className="chip" onClick={() => setText(q)}>
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <form onSubmit={send} className="composer">
+        <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          aria-label="Message your coach"
+          placeholder="Ask what&rsquo;s on your mind…"
           disabled={busy}
         />
-        <button className="rounded-xl bg-emerald-400 px-5 text-sm font-medium text-emerald-950 disabled:opacity-50" disabled={busy || !text.trim()}>
-          Ask
-        </button>
+        <div className="row between">
+          <span className="small muted">Uses your logged meals and training.</span>
+          <button className="primary" disabled={busy || !text.trim()}>
+            Send <Send size={17} />
+          </button>
+        </div>
       </form>
-    </div>
+    </>
   );
 }

@@ -29,9 +29,9 @@ export async function startSessionAction(): Promise<{ ok: boolean; sessionId?: s
 const setSchema = z.object({
   sessionId: z.string().uuid(),
   exerciseId: z.string().uuid(),
-  setNumber: z.number().int().positive(),
-  weightKg: z.number().min(0),
-  reps: z.number().int().positive(),
+  setNumber: z.number().int().positive().max(100),
+  weightKg: z.number().min(0).max(1500),
+  reps: z.number().int().positive().max(1000),
 });
 
 export async function logSetAction(raw: unknown): Promise<{ ok: boolean; isPr?: boolean; error?: string }> {
@@ -48,7 +48,9 @@ export async function logSetAction(raw: unknown): Promise<{ ok: boolean; isPr?: 
 export async function finishSessionAction(sessionId: string, notes?: string): Promise<{ ok: boolean }> {
   try {
     const user = await requireUser();
-    await finishSession(user.id, sessionId, notes);
+    const safeSessionId = z.string().uuid().parse(sessionId);
+    const safeNotes = z.string().trim().max(2000).optional().parse(notes);
+    await finishSession(user.id, safeSessionId, safeNotes);
     revalidatePath("/workout");
     revalidatePath("/home");
     return { ok: true };
@@ -57,7 +59,10 @@ export async function finishSessionAction(sessionId: string, notes?: string): Pr
   }
 }
 
-const customExerciseSchema = z.object({ name: z.string().min(2), muscleGroup: z.string().min(2) });
+const customExerciseSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  muscleGroup: z.string().trim().min(2).max(50),
+});
 
 export async function addCustomExerciseAction(raw: unknown): Promise<{ ok: boolean; id?: string; error?: string }> {
   try {

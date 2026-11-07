@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getDb, schema } from "@/lib/db";
+import { dateKey } from "@/lib/time";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -15,14 +16,12 @@ async function requireUser() {
   return user;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
-
 export async function logWeightAction(kg: number): Promise<{ ok: boolean; error?: string }> {
   try {
     const user = await requireUser();
     const w = z.number().min(20).max(400).parse(kg);
     const db = getDb();
-    const date = today();
+    const date = dateKey();
     const existing = await db
       .select({ id: schema.weightLogs.id })
       .from(schema.weightLogs)
@@ -59,7 +58,7 @@ export async function logStepsAction(steps: number): Promise<{ ok: boolean }> {
     const user = await requireUser();
     const v = z.number().int().min(0).max(200000).parse(steps);
     const db = getDb();
-    const date = today();
+    const date = dateKey();
     const existing = await db
       .select({ id: schema.stepsLogs.id })
       .from(schema.stepsLogs)
@@ -82,7 +81,7 @@ export async function logSleepAction(hours: number): Promise<{ ok: boolean }> {
     const user = await requireUser();
     const v = z.number().min(0).max(24).parse(hours);
     const db = getDb();
-    const date = today();
+    const date = dateKey();
     const minutes = Math.round(v * 60);
     const existing = await db
       .select({ id: schema.sleepLogs.id })

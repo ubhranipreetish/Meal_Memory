@@ -44,6 +44,7 @@ Nutrition — totalKcal / totalProteinG / totalCarbsG / totalFatG are for the WH
 Other:
 - Plain water ("drank 1 litre water", "ek glass pani") => set waterMl to the total ml and do NOT create a food item.
 - Meal slot: if the utterance names one ("for breakfast", "lunch mein", "after gym", "post workout", "evening snack", "dinner"), set mealType to breakfast | lunch | snack | post_workout | dinner; otherwise leave it null.
+- Treat "alu paratha", "alu parata", and "aloo paratha" as the single dish "Aloo Paratha". Keep both words together. Never split it into potato and plain paratha.
 - Item "name": clean, title-case canonical name preserving user-specific qualifiers ("Mom's Paneer Paratha" stays as is).
 - Ignore non-food chatter; if nothing edible is mentioned, return an empty items array.`;
 

@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveSession, listExercises, recentSessions } from "@/lib/services/workouts";
-import { BottomNav } from "@/components/BottomNav";
+import { AppShell } from "@/components/AppShell";
 import { WorkoutClient } from "./WorkoutClient";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +21,7 @@ export default async function WorkoutPage() {
   ]);
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 px-5 pb-24 pt-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Workout</h1>
-        <a href="/workout/plans" className="text-sm text-neutral-500 underline underline-offset-4">Plans</a>
-      </div>
+    <AppShell active="/workout" eyebrow="TRAIN" aside={<Link href="/workout/plans" style={{ color: "inherit" }}>Plans →</Link>} title="Make this set count." subtitle="Log as you go. The numbers take care of themselves.">
       <WorkoutClient
         exercises={exercises.map((e) => ({
           id: e.id,
@@ -49,7 +46,6 @@ export default async function WorkoutPage() {
           exerciseCount: s.exerciseCount,
         }))}
       />
-      <BottomNav active="/workout" />
-    </main>
+    </AppShell>
   );
 }

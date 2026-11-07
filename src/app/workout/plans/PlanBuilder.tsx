@@ -63,16 +63,16 @@ export function PlanBuilder({ exercises, plans }: { exercises: Exercise[]; plans
   }
 
   const inputCls =
-    "rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700";
+    "field";
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="spaced">
       {!creating ? (
         <button className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-medium text-emerald-950" onClick={() => setCreating(true)}>
           + New plan
         </button>
       ) : (
-        <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4">
+        <div className="card">
           <input className={`${inputCls} w-full`} placeholder="Plan name (e.g. Push Pull Legs)" value={planName} onChange={(e) => setPlanName(e.target.value)} />
           <div className="mt-3 flex gap-2">
             <input className={`${inputCls} w-28`} placeholder="Day label" value={day} onChange={(e) => setDay(e.target.value)} />
@@ -103,7 +103,7 @@ export function PlanBuilder({ exercises, plans }: { exercises: Exercise[]; plans
               {draft.map((d, i) => (
                 <li key={i} className="flex items-center justify-between gap-2 text-sm">
                   <span className="truncate">
-                    <span className="text-xs text-neutral-400">{d.dayLabel} · </span>
+                    <span className="small muted">{d.dayLabel} · </span>
                     {d.name}
                   </span>
                   <span className="flex items-center gap-1 text-xs text-neutral-500">
@@ -142,8 +142,8 @@ export function PlanBuilder({ exercises, plans }: { exercises: Exercise[]; plans
       )}
 
       {plans.map((p) => (
-        <div key={p.id} className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-          <div className="flex items-center justify-between">
+        <div key={p.id} className="card">
+          <div className="row between">
             <h3 className="text-sm font-semibold">{p.name}</h3>
             <button
               className="text-xs text-red-400 underline underline-offset-2"
@@ -154,8 +154,8 @@ export function PlanBuilder({ exercises, plans }: { exercises: Exercise[]; plans
           </div>
           <ul className="mt-2 flex flex-col gap-1 text-sm text-neutral-600 dark:text-neutral-300">
             {p.items.map((it, i) => (
-              <li key={i} className="flex justify-between">
-                <span><span className="text-xs text-neutral-400">{it.dayLabel} · </span>{it.name}</span>
+              <li key={i} className="row between">
+                <span><span className="small muted">{it.dayLabel} · </span>{it.name}</span>
                 <span className="text-neutral-500">{it.targetSets}×{it.targetReps}</span>
               </li>
             ))}

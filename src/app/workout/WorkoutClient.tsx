@@ -70,10 +70,10 @@ export function WorkoutClient({
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="spaced">
       {!active ? (
         <button
-          className="rounded-xl bg-emerald-400 px-5 py-3.5 text-sm font-medium text-emerald-950 disabled:opacity-50"
+          className="primary w-full"
           onClick={start}
           disabled={busy}
         >
@@ -90,18 +90,18 @@ export function WorkoutClient({
       )}
 
       <section>
-        <h2 className="mb-2 text-sm font-medium text-neutral-500">Recent sessions</h2>
-        {recent.length === 0 && <p className="text-sm text-neutral-400">No workouts yet.</p>}
+        <h2>Recent sessions</h2>
+        {recent.length === 0 && <p className="small muted">No workouts yet.</p>}
         <div className="flex flex-col gap-2">
           {recent.map((s) => (
-            <div key={s.id} className="rounded-xl border border-neutral-200 px-4 py-3 text-sm dark:border-neutral-800">
-              <div className="flex justify-between">
+            <div key={s.id} className="meal">
+              <div className="row between">
                 <span className="font-medium">
                   {new Date(s.startedAt).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}
                 </span>
                 {s.prs > 0 && <span className="text-amber-500">🏆 {s.prs} PR{s.prs > 1 ? "s" : ""}</span>}
               </div>
-              <p className="mt-0.5 text-xs text-neutral-500">
+              <p className="small muted">
                 {s.exerciseCount} exercises · {s.setCount} sets · {s.volume.toLocaleString()} kg volume
               </p>
             </div>
@@ -198,10 +198,10 @@ function ActiveSessionPanel({
   }, {});
 
   return (
-    <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4">
-      <div className="flex items-center justify-between">
+    <div className="card">
+      <div className="row between">
         <h2 className="text-sm font-semibold">Session in progress</h2>
-        <span className="text-xs text-neutral-500">
+        <span className="small muted">
           started {new Date(session.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </span>
       </div>
@@ -210,33 +210,33 @@ function ActiveSessionPanel({
       {rest != null && (
         <div className="mt-2 flex items-center justify-between rounded-lg bg-neutral-900/5 px-3 py-2 text-sm dark:bg-white/5">
           <span>Rest: <span className="font-semibold tabular-nums">{Math.floor(rest / 60)}:{String(rest % 60).padStart(2, "0")}</span></span>
-          <button className="text-xs text-neutral-500 underline" onClick={() => setRest(null)}>skip</button>
+          <button className="green small" onClick={() => setRest(null)}>skip</button>
         </div>
       )}
 
       {/* exercise picker */}
       <div className="mt-3">
         {selected ? (
-          <div className="flex items-center justify-between rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700">
+          <div className="row between field">
             <span className="font-medium">{selected.name}</span>
-            <button className="text-xs text-neutral-500 underline" onClick={() => { setSelected(null); setQuery(""); }}>
+            <button className="green small" onClick={() => { setSelected(null); setQuery(""); }}>
               change
             </button>
           </div>
         ) : (
           <>
             <input
-              className="w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700"
+              className="field"
               placeholder="Search exercise… (e.g. bench press)"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             {matches.length > 0 && (
-              <ul className="mt-1 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
+              <ul className="mt-1">
                 {matches.map((m) => (
                   <li key={m.id}>
                     <button
-                      className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-emerald-500/10"
+                      className="row between small meal" style={{ width: "100%" }}
                       onClick={() => { setSelected(m); setQuery(""); }}
                     >
                       <span>{m.name}</span>
@@ -253,24 +253,24 @@ function ActiveSessionPanel({
       {/* set entry */}
       {selected && (
         <div className="mt-3 flex items-end gap-2">
-          <label className="flex flex-1 flex-col gap-1 text-xs text-neutral-500">
+          <label className="small muted flex-1">
             Weight (kg)
             <input
               type="number" step="any" inputMode="decimal"
-              className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700"
+              className="field"
               value={weight} onChange={(e) => setWeight(e.target.value)}
             />
           </label>
-          <label className="flex flex-1 flex-col gap-1 text-xs text-neutral-500">
+          <label className="small muted flex-1">
             Reps
             <input
               type="number" inputMode="numeric"
-              className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-emerald-500 dark:border-neutral-700"
+              className="field"
               value={reps} onChange={(e) => setReps(e.target.value)}
             />
           </label>
           <button
-            className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
+            className="primary"
             onClick={addSet}
             disabled={busy || !weight || !reps}
           >
@@ -287,14 +287,14 @@ function ActiveSessionPanel({
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium">{name}</h3>
                 {sets[0].exerciseId && (
-                  <Link href={`/workout/exercise/${sets[0].exerciseId}`} className="text-xs text-emerald-600 underline underline-offset-2">
+                  <Link href={`/workout/exercise/${sets[0].exerciseId}`} className="green small">
                     history
                   </Link>
                 )}
               </div>
               <ul className="mt-1 flex flex-col gap-0.5 text-sm text-neutral-600 dark:text-neutral-300">
                 {sets.map((s, i) => (
-                  <li key={i} className="flex justify-between">
+                  <li key={i} className="row between">
                     <span>Set {s.setNumber}: {s.weightKg} kg × {s.reps}</span>
                     {s.isPr && <span className="text-amber-500">🏆 PR</span>}
                   </li>

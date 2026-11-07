@@ -6,7 +6,16 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/api/cron"]; // cron guards itself via CRON_SECRET
+function isPublicPath(path: string) {
+  return (
+    path === "/login" ||
+    path === "/auth" ||
+    path.startsWith("/auth/") ||
+    path === "/preview" ||
+    path.startsWith("/preview/") ||
+    path.startsWith("/api/cron/")
+  );
+}
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -26,15 +35,11 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getClaims();
 
   const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
-
   // Not signed in and on a protected route → send to login.
-  if (!user && !isPublic) {
+  if ((error || !data?.claims.sub) && !isPublicPath(path)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

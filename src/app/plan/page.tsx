@@ -11,7 +11,8 @@ import {
   type PlanFood,
 } from "@/lib/services/dietPlan";
 import type { Targets } from "@/lib/services/targets";
-import { BottomNav } from "@/components/BottomNav";
+import { AppShell } from "@/components/AppShell";
+import { mealLabel } from "@/types/food";
 
 export const dynamic = "force-dynamic";
 
@@ -57,61 +58,77 @@ export default async function PlanPage() {
   const suggestions = suggestForRemaining(pool, remainingKcal, remainingProtein);
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 px-5 pb-24 pt-8">
-      <h1 className="text-2xl font-semibold">Diet plan</h1>
-
-      <section className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4">
-        <h2 className="text-sm font-semibold">Right now</h2>
-        <p className="mt-1 text-sm text-neutral-500">
-          {remainingKcal} kcal · {remainingProtein}g protein left today.
-        </p>
-        {suggestions.length > 0 && (
-          <ul className="mt-2 flex flex-col gap-1 text-sm">
+    <AppShell active="/home" eyebrow="MEAL PLAN" title="A plan for your plate." subtitle="Built from foods you already eat.">
+      <section className="card section">
+        <p className="eyebrow green">RIGHT NOW</p>
+        <h2 className="mt-2">
+          {remainingKcal} kcal &middot; {remainingProtein}g protein left
+        </h2>
+        {suggestions.length > 0 ? (
+          <>
+            <p className="small muted mt-2">These would fit what&rsquo;s left of today:</p>
             {suggestions.map((s, i) => (
-              <li key={i} className="flex justify-between">
-                <span>{s.food.name} ×{s.qty} {s.food.unit}</span>
-                <span className="text-neutral-500">{s.kcal} kcal · {s.proteinG}g P</span>
-              </li>
+              <div className="row between small mt-2" key={i}>
+                <span>
+                  {s.food.name} &times;{s.qty} {s.food.unit}
+                </span>
+                <span className="muted">
+                  {s.kcal} kcal &middot; {s.proteinG}g P
+                </span>
+              </div>
             ))}
-          </ul>
+          </>
+        ) : (
+          <p className="small muted mt-2">Nothing to suggest right now — you&rsquo;re on target.</p>
         )}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-sm font-medium text-neutral-500">Tomorrow&apos;s plan</h2>
-          <span className={`text-xs ${plan.withinKcal && plan.withinProtein ? "text-emerald-600" : "text-amber-500"}`}>
-            {plan.totalKcal} kcal / {plan.totalProteinG}g P · {plan.familiarPct}% your foods
+      <section className="section">
+        <div className="row between">
+          <h2>Tomorrow&rsquo;s plan</h2>
+          <span className="small" style={{ color: plan.withinKcal && plan.withinProtein ? "var(--pg-primary)" : "var(--pg-amber)" }}>
+            {plan.totalKcal} kcal / {plan.totalProteinG}g P
           </span>
         </div>
+        <p className="small muted mt-1">{plan.familiarPct}% from foods you already eat.</p>
+
         {plan.meals.map((m) => (
-          <div key={m.slot} className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-            <div className="flex justify-between text-xs text-neutral-500">
-              <span className="font-medium uppercase">{m.slot}</span>
-              <span>{m.kcal} kcal · {m.proteinG}g P</span>
+          <div className="meal" key={m.slot}>
+            <p className="eyebrow green">{mealLabel(m.slot)}</p>
+            <div className="row between mt-2">
+              <h2>{m.items.map((i) => i.food.name).join(", ")}</h2>
             </div>
-            <ul className="mt-2 flex flex-col gap-2">
-              {m.items.map((i, idx) => (
-                <li key={idx} className="text-sm">
-                  <div className="flex justify-between">
-                    <span>{i.food.name} ×{i.qty} {i.food.unit}</span>
-                    <span className="text-neutral-500">{i.kcal} kcal</span>
-                  </div>
-                  {i.swaps.length > 0 && (
-                    <p className="mt-0.5 text-xs text-neutral-400">
-                      or: {i.swaps.map((s) => `${s.food.name} ×${s.qty}`).join(" · ")}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <p className="small muted mt-1">
+              {m.kcal} kcal &middot; {m.proteinG}g protein
+            </p>
+            {m.items.map((i, idx) => (
+              <div key={idx} className="mt-2">
+                <div className="row between small">
+                  <span>
+                    {i.food.name} &times;{i.qty} {i.food.unit}
+                  </span>
+                  <span className="muted">{i.kcal} kcal</span>
+                </div>
+                {i.swaps.length > 0 && (
+                  <details className="small muted">
+                    <summary style={{ minHeight: 44, paddingTop: 12 }}>See swap alternatives</summary>
+                    <div className="chips">
+                      {i.swaps.map((sw, j) => (
+                        <span className="chip" key={j}>
+                          {sw.food.name} &times;{sw.qty}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ))}
           </div>
         ))}
-        <p className="text-xs text-neutral-400">
-          Built from your own food memory (starter foods fill gaps). Respects your diet type, allergies and avoid-list. Refresh the page to re-generate.
+        <p className="small muted mt-3">
+          Respects your diet type, allergies and avoid-list. Refresh to re-generate.
         </p>
       </section>
-      <BottomNav active="/home" />
-    </main>
+    </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 /**
  * Drizzle database client (server-only). Uses postgres.js against the Supabase
- * Postgres connection string (the session-mode pooler, port 5432).
+ * Postgres connection string (the transaction pooler is recommended in
+ * serverless production). Schema commands use DIRECT_URL in drizzle.config.
  *
  * The client is cached on `globalThis` — not just in module scope — because
  * Turbopack re-evaluates this module on every server hot-reload in dev; a
@@ -20,7 +21,10 @@ export function getDb(): Db {
   if (!g.__pgDb) {
     const client = postgres(env.databaseUrl(), {
       prepare: false,
-      max: 5,
+      ssl: "require",
+      // Each serverless instance can create its own pool. One connection per
+      // instance avoids exhausting Supabase while still allowing transactions.
+      max: process.env.NODE_ENV === "production" ? 1 : 5,
       idle_timeout: 20, // seconds; free pooler sessions while the app is idle
       connect_timeout: 15,
     });

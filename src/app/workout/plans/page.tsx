@@ -4,7 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { getDb, schema } from "@/lib/db";
 import { listExercises } from "@/lib/services/workouts";
-import { BottomNav } from "@/components/BottomNav";
+import { AppShell } from "@/components/AppShell";
 import { PlanBuilder } from "./PlanBuilder";
 
 export const dynamic = "force-dynamic";
@@ -44,17 +44,17 @@ export default async function PlansPage() {
   );
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 px-5 pb-24 pt-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Workout plans</h1>
-        <Link href="/workout" className="text-sm text-neutral-500 underline underline-offset-4">← Workout</Link>
-      </div>
-
+    <AppShell
+      active="/workout"
+      eyebrow="PLANS"
+      aside={<Link href="/workout" style={{ color: "inherit" }}>← Workout</Link>}
+      title="Build your week."
+      subtitle="Days, exercises, targets — reused every session."
+    >
       <PlanBuilder
         exercises={exercises.map((e) => ({ id: e.id, name: e.name, muscleGroup: e.muscleGroup ?? "other" }))}
         plans={planRows}
       />
-      <BottomNav active="/workout" />
-    </main>
+    </AppShell>
   );
 }

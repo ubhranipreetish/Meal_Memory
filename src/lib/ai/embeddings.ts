@@ -14,6 +14,7 @@ export async function embedText(text: string): Promise<number[]> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(20_000),
     body: JSON.stringify({
       content: { parts: [{ text }] },
       outputDimensionality: EMBED_DIMS,

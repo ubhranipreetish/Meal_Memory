@@ -44,6 +44,13 @@ const UNIT_SINGULAR: Record<string, string> = {
   ml: "ml", millilitre: "ml", milliliter: "ml",
 };
 
+/** Normalize this Romanized dish spelling while keeping the rest of the phrase intact. */
+export function normalizeAlooParatha(text: string): string {
+  return text.replace(/\b(?:alu|aloo)[\s-]+(parathas?|paratas?|parathe|parate)\b/gi, (_, dish: string) =>
+    /[se]$/i.test(dish) ? "Aloo Parathas" : "Aloo Paratha",
+  );
+}
+
 /** Normalize free text for alias matching. */
 export function normalizeAlias(s: string): string {
   return s.toLowerCase().trim().replace(/[^\p{L}\p{N}\s']/gu, " ").replace(/\s+/g, " ").trim();
@@ -51,10 +58,18 @@ export function normalizeAlias(s: string): string {
 
 /** Candidate alias keys for a name (exact + naive singular). */
 export function aliasCandidates(name: string): string[] {
-  const n = normalizeAlias(name);
-  const out = [n];
-  if (n.endsWith("es")) out.push(n.slice(0, -2));
-  if (n.endsWith("s")) out.push(n.slice(0, -1));
+  const canonical = normalizeAlias(normalizeAlooParatha(name));
+  const variants = [canonical, normalizeAlias(name)];
+  // Earlier versions saved "alu paratha" and "alu parata" as exact aliases.
+  if (/\baloo parathas?\b/.test(canonical)) {
+    variants.push(canonical.replace(/\baloo paratha/g, "alu paratha"));
+    variants.push(canonical.replace(/\baloo paratha/g, "alu parata"));
+  }
+  const out = variants.flatMap((n) => [
+    n,
+    ...(n.endsWith("es") ? [n.slice(0, -2)] : []),
+    ...(n.endsWith("s") ? [n.slice(0, -1)] : []),
+  ]);
   return [...new Set(out)];
 }
 

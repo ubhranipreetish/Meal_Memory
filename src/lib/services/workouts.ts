@@ -5,6 +5,7 @@
  */
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { appTimeZone, dayBounds } from "@/lib/time";
 
 export interface SetRecord {
   weightKg: number;
@@ -48,6 +49,16 @@ export async function listExercises(userId: string) {
 // ── Sessions ─────────────────────────────────────────────────────────────────
 export async function startSession(userId: string, planId?: string) {
   const db = getDb();
+  const active = await getActiveSession(userId);
+  if (active) return active.id;
+  if (planId) {
+    const [plan] = await db
+      .select({ id: schema.workoutPlans.id })
+      .from(schema.workoutPlans)
+      .where(and(eq(schema.workoutPlans.id, planId), eq(schema.workoutPlans.userId, userId)))
+      .limit(1);
+    if (!plan) throw new Error("Workout plan not found");
+  }
   const [s] = await db
     .insert(schema.workoutSessions)
     .values({ userId, planId: planId ?? null, startedAt: new Date() })
@@ -57,10 +68,12 @@ export async function startSession(userId: string, planId?: string) {
 
 export async function finishSession(userId: string, sessionId: string, notes?: string) {
   const db = getDb();
-  await db
+  const updated = await db
     .update(schema.workoutSessions)
     .set({ endedAt: new Date(), notes: notes ?? null })
-    .where(and(eq(schema.workoutSessions.id, sessionId), eq(schema.workoutSessions.userId, userId)));
+    .where(and(eq(schema.workoutSessions.id, sessionId), eq(schema.workoutSessions.userId, userId)))
+    .returning({ id: schema.workoutSessions.id });
+  if (updated.length === 0) throw new Error("Workout session not found");
 }
 
 /** Log one set; PR status computed against all prior history for the exercise. */
@@ -69,6 +82,32 @@ export async function logSet(
   input: { sessionId: string; exerciseId: string; setNumber: number; weightKg: number; reps: number },
 ) {
   const db = getDb();
+  const [[session], [exercise]] = await Promise.all([
+    db
+      .select({ id: schema.workoutSessions.id })
+      .from(schema.workoutSessions)
+      .where(
+        and(
+          eq(schema.workoutSessions.id, input.sessionId),
+          eq(schema.workoutSessions.userId, userId),
+          isNull(schema.workoutSessions.endedAt),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ id: schema.exercises.id })
+      .from(schema.exercises)
+      .where(
+        and(
+          eq(schema.exercises.id, input.exerciseId),
+          or(isNull(schema.exercises.userId), eq(schema.exercises.userId, userId)),
+        ),
+      )
+      .limit(1),
+  ]);
+  if (!session) throw new Error("Workout session not found or already finished");
+  if (!exercise) throw new Error("Exercise not found");
+
   const history = await db
     .select({ weightKg: schema.sessionSets.weightKg, reps: schema.sessionSets.reps })
     .from(schema.sessionSets)
@@ -154,8 +193,7 @@ export async function recentSessions(userId: string, limit = 10) {
 /** Did the user finish (or start) a session today? For the dashboard tile. */
 export async function workoutDoneToday(userId: string) {
   const db = getDb();
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const { start, end } = dayBounds();
   const [row] = await db
     .select({ id: schema.workoutSessions.id })
     .from(schema.workoutSessions)
@@ -163,6 +201,7 @@ export async function workoutDoneToday(userId: string) {
       and(
         eq(schema.workoutSessions.userId, userId),
         sql`${schema.workoutSessions.startedAt} >= ${start.toISOString()}`,
+        sql`${schema.workoutSessions.startedAt} < ${end.toISOString()}`,
       ),
     )
     .limit(1);
@@ -175,12 +214,17 @@ export async function exerciseHistory(userId: string, exerciseId: string) {
   const [ex] = await db
     .select()
     .from(schema.exercises)
-    .where(eq(schema.exercises.id, exerciseId))
+    .where(
+      and(
+        eq(schema.exercises.id, exerciseId),
+        or(isNull(schema.exercises.userId), eq(schema.exercises.userId, userId)),
+      ),
+    )
     .limit(1);
   if (!ex) return null;
 
   const rows = (await db.execute(sql`
-    select ws.started_at::date as day,
+    select (ws.started_at at time zone ${appTimeZone()})::date as day,
            max(ss.weight_kg)::float as top_weight,
            max(ss.weight_kg * ss.reps)::float as top_set_volume,
            bool_or(ss.is_pr) as had_pr

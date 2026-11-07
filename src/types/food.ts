@@ -141,18 +141,18 @@ export function itemTotals(item: { qty: number; perQty: number; perUnit: PerUnit
 
 /** Payload the client sends back on confirm (possibly user-edited). */
 export const confirmItemSchema = z.object({
-  name: z.string().min(1),
-  typedName: z.string().min(1),
-  qty: z.number().positive(),
-  unit: z.string().min(1),
-  perQty: z.number().positive().default(1),
+  name: z.string().trim().min(1).max(120),
+  typedName: z.string().trim().min(1).max(200),
+  qty: z.number().positive().max(100_000),
+  unit: z.enum(UNITS),
+  perQty: z.number().positive().max(100_000).default(1),
   status: z.enum(["known", "new"]),
   foodMemoryId: z.string().uuid().optional(),
   perUnit: z.object({
-    kcal: z.number().min(0),
-    proteinG: z.number().min(0),
-    carbsG: z.number().min(0),
-    fatG: z.number().min(0),
+    kcal: z.number().min(0).max(100_000),
+    proteinG: z.number().min(0).max(10_000),
+    carbsG: z.number().min(0).max(10_000),
+    fatG: z.number().min(0).max(10_000),
   }),
   confidence: z.number().min(0).max(1).optional(),
   assumptions: z.string().nullable().optional(),
@@ -163,11 +163,11 @@ export const confirmItemSchema = z.object({
 });
 
 export const confirmLogSchema = z.object({
-  raw: z.string().min(1),
+  raw: z.string().trim().min(1).max(2000),
   mealType: z.enum(MEAL_TYPES),
-  waterMl: z.number().min(0).optional(),
-  items: z.array(confirmItemSchema),
+  waterMl: z.number().min(0).max(10_000).optional(),
+  items: z.array(confirmItemSchema).max(30),
   inputMode: z.enum(["text", "voice", "photo", "quick_pick"]).default("text"),
-  photoPath: z.string().optional(),
+  photoPath: z.string().max(500).optional(),
 });
 export type ConfirmLogInput = z.infer<typeof confirmLogSchema>;

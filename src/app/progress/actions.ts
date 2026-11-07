@@ -5,6 +5,8 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getDb, schema } from "@/lib/db";
 import { analyzeReport } from "@/lib/ai/reportReader";
+import { dateKey } from "@/lib/time";
+import { validateBase64Upload } from "@/lib/uploadValidation";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -31,7 +33,7 @@ export async function saveMeasurementAction(raw: unknown): Promise<{ ok: boolean
     const db = getDb();
     await db.insert(schema.measurements).values({
       userId: user.id,
-      date: new Date().toISOString().slice(0, 10),
+      date: dateKey(),
       chestCm: m.chestCm != null ? String(m.chestCm) : null,
       waistCm: m.waistCm != null ? String(m.waistCm) : null,
       hipsCm: m.hipsCm != null ? String(m.hipsCm) : null,
@@ -51,17 +53,17 @@ export async function analyzeReportAction(
 ): Promise<{ ok: true; summary: string } | { ok: false; error: string }> {
   try {
     const user = await requireUser();
-    const analysis = await analyzeReport(base64, mimeType);
+    const upload = validateBase64Upload(base64, mimeType, "report");
+    const analysis = await analyzeReport(base64, upload.mimeType);
 
     // best-effort file storage
     let filePath: string | null = null;
     try {
       const supabase = await createClient();
-      const ext = mimeType.includes("pdf") ? "pdf" : mimeType.includes("png") ? "png" : "jpg";
-      const path = `${user.id}/${Date.now()}.${ext}`;
+      const path = `${user.id}/${Date.now()}.${upload.extension}`;
       const { error } = await supabase.storage
         .from("reports")
-        .upload(path, Buffer.from(base64, "base64"), { contentType: mimeType });
+        .upload(path, upload.buffer, { contentType: upload.mimeType });
       if (!error) filePath = path;
     } catch {
       /* optional */
@@ -71,7 +73,7 @@ export async function analyzeReportAction(
     await db.insert(schema.bodyReports).values({
       userId: user.id,
       reportType: analysis.reportType,
-      reportDate: new Date().toISOString().slice(0, 10),
+      reportDate: dateKey(),
       filePath,
       metrics: analysis.metrics,
       aiSummary: analysis.summary,

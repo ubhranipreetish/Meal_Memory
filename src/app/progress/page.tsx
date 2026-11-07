@@ -1,9 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { desc, eq, sql } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { getDb, schema } from "@/lib/db";
-import { BottomNav } from "@/components/BottomNav";
+import { AppShell } from "@/components/AppShell";
 import { ProgressClient } from "./ProgressClient";
 
 export const dynamic = "force-dynamic";
@@ -47,11 +46,7 @@ export default async function ProgressPage() {
   });
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 px-5 pb-24 pt-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Progress</h1>
-        <Link href="/reviews" className="text-sm text-neutral-500 underline underline-offset-4">Reviews</Link>
-      </div>
+    <AppShell active="/home" eyebrow="PROGRESS" title="See the bigger picture." subtitle="Small changes add up.">
       <ProgressClient
         weights={[...weights].reverse()}
         measurements={measurements.map((m) => ({
@@ -60,7 +55,6 @@ export default async function ProgressPage() {
         }))}
         reports={reportCards}
       />
-      <BottomNav active="/home" />
-    </main>
+    </AppShell>
   );
 }

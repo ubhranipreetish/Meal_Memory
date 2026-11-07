@@ -15,6 +15,7 @@ import { embedText } from "@/lib/ai/embeddings";
 import {
   aliasCandidates,
   normalizeAlias,
+  normalizeAlooParatha,
   quickParseSegments,
   quickParseWater,
 } from "@/lib/services/quickParse";
@@ -26,6 +27,7 @@ import {
   type ResolvedItem,
   type ResolvedLog,
 } from "@/types/food";
+import { dayBounds, hourInTimeZone } from "@/lib/time";
 
 /**
  * Fuzzy-match ceiling: cosine distance must be below this AND the candidate
@@ -62,7 +64,9 @@ async function fuzzyLookup(userId: string, name: string): Promise<MemoryRow | nu
   if (!row) return null;
   const dist = Number(row.dist);
   const canonical = String(row.canonical_name);
-  if (!(dist < FUZZY_MAX_DISTANCE) || !sharedToken(name, canonical)) return null;
+  const isAlooParatha = (value: string) => /\bAloo Parathas?\b/.test(normalizeAlooParatha(value));
+  if (isAlooParatha(name) !== isAlooParatha(canonical)) return null;
+  if (!(dist < FUZZY_MAX_DISTANCE) || !sharedToken(normalizeAlooParatha(name), normalizeAlooParatha(canonical))) return null;
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -77,37 +81,13 @@ async function fuzzyLookup(userId: string, name: string): Promise<MemoryRow | nu
 }
 
 /** Meal slot from local time when the user didn't say (pure; unit-tested). */
-export function inferMealType(d: Date = new Date()): MealType {
-  const h = d.getHours() + d.getMinutes() / 60;
+export function inferMealType(d: Date = new Date(), timeZone?: string): MealType {
+  const h = hourInTimeZone(d, timeZone);
   if (h < 4) return "dinner"; // late-night eating counts toward dinner
   if (h < 11) return "breakfast";
   if (h < 15.5) return "lunch";
   if (h < 18.5) return "snack";
   return "dinner";
-}
-
-/** How long after a workout a meal still counts as "post-workout". */
-export const POST_WORKOUT_WINDOW_MS = 2 * 60 * 60 * 1000;
-
-/**
- * Slot suggestion with context: a workout finished (or started) in the last
- * two hours → post_workout, else the time-of-day default. The user can always
- * override in the UI — this only picks the pre-selected chip.
- */
-export async function suggestMealType(userId: string, now: Date = new Date()): Promise<MealType> {
-  const db = getDb();
-  const since = new Date(now.getTime() - POST_WORKOUT_WINDOW_MS);
-  const [row] = await db
-    .select({ id: schema.workoutSessions.id })
-    .from(schema.workoutSessions)
-    .where(
-      and(
-        eq(schema.workoutSessions.userId, userId),
-        sql`coalesce(${schema.workoutSessions.endedAt}, ${schema.workoutSessions.startedAt}) >= ${since.toISOString()}`,
-      ),
-    )
-    .limit(1);
-  return row ? "post_workout" : inferMealType(now);
 }
 
 type MemoryRow = typeof schema.foodMemory.$inferSelect;
@@ -182,7 +162,7 @@ export async function resolveUtterance(userId: string, utterance: string): Promi
         const m = hits.get(s.namePart)!;
         const unit = s.unit ?? m.servingUnit;
         return {
-          name: m.canonicalName,
+          name: normalizeAlooParatha(m.canonicalName),
           typedName: s.namePart,
           qty: s.qty,
           unit,
@@ -213,7 +193,7 @@ async function resolveViaAi(userId: string, utterance: string): Promise<Resolved
 
   return {
     raw: utterance,
-    mealType: parsed.mealType ?? (await suggestMealType(userId)),
+    mealType: parsed.mealType ?? inferMealType(),
     mealTypeExplicit: parsed.mealType != null,
     waterMl: parsed.waterMl ?? undefined,
     items,
@@ -240,7 +220,7 @@ export async function resolveParsedItems(
         // Same kind of unit → trust the user's confirmed memory values.
         if (servingSize(i.unit) === servingSize(m.servingUnit)) {
           return {
-            name: m.canonicalName,
+            name: normalizeAlooParatha(m.canonicalName),
             typedName: i.name,
             qty: i.qty,
             unit: i.unit,
@@ -254,7 +234,7 @@ export async function resolveParsedItems(
         // Different kind ("glass" vs saved "per 100 ml") → keep the memory
         // link (stats, no duplicate) but use the AI estimate for THIS unit.
         return {
-          name: m.canonicalName,
+          name: normalizeAlooParatha(m.canonicalName),
           typedName: i.name,
           qty: i.qty,
           unit: i.unit,
@@ -289,13 +269,14 @@ export async function resolveParsedItems(
 export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
   const db = getDb();
   const now = new Date();
+  const pendingEmbeddings: { id: string; name: string }[] = [];
 
-  // 1. Ensure a food_memory row per item (null when the user chose not to save).
-  const itemMemoryIds: (string | null)[] = [];
-  for (const item of input.items) {
-    if (item.status === "known" && item.foodMemoryId) {
-      itemMemoryIds.push(item.foodMemoryId);
-      await db
+  const result = await db.transaction(async (tx) => {
+    // 1. Ensure a food_memory row per item (null when the user chose not to save).
+    const itemMemoryIds: (string | null)[] = [];
+    for (const item of input.items) {
+      if (item.status === "known" && item.foodMemoryId) {
+        const updated = await tx
         .update(schema.foodMemory)
         .set({
           timesLogged: sql`${schema.foodMemory.timesLogged} + 1`,
@@ -317,109 +298,117 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
               }
             : {}),
         })
-        .where(and(eq(schema.foodMemory.id, item.foodMemoryId), eq(schema.foodMemory.userId, userId)));
+        .where(and(eq(schema.foodMemory.id, item.foodMemoryId), eq(schema.foodMemory.userId, userId)))
+        .returning({ id: schema.foodMemory.id });
+        if (updated.length === 0) throw new Error("Saved food not found");
+        itemMemoryIds.push(updated[0].id);
 
-      // Alias learning: a new phrasing that resolved (via AI or fuzzy match)
-      // becomes an exact alias → future logs are zero-AI (Sprint 2).
-      const typed = normalizeAlias(item.typedName);
-      if (typed && typed !== normalizeAlias(item.name)) {
-        await db
-          .insert(schema.foodAliases)
-          .values({ userId, foodMemoryId: item.foodMemoryId, alias: typed })
-          .onConflictDoNothing();
+        // Alias learning: a new phrasing that resolved (via AI or fuzzy match)
+        // becomes an exact alias → future logs are zero-AI (Sprint 2).
+        const typed = normalizeAlias(item.typedName);
+        if (typed && typed !== normalizeAlias(item.name)) {
+          await tx
+            .insert(schema.foodAliases)
+            .values({ userId, foodMemoryId: updated[0].id, alias: typed })
+            .onConflictDoNothing();
+        }
+      } else if (!item.saveToMemory) {
+        itemMemoryIds.push(null); // one-off: logged with its snapshot only
+      } else {
+        const [mem] = await tx
+          .insert(schema.foodMemory)
+          .values({
+            userId,
+            canonicalName: item.name,
+            servingUnit: item.unit,
+            servingQty: String(item.perQty),
+            kcal: String(item.perUnit.kcal),
+            proteinG: String(item.perUnit.proteinG),
+            carbsG: String(item.perUnit.carbsG),
+            fatG: String(item.perUnit.fatG),
+            source: item.confidence != null ? "llm_estimate" : "user_entered",
+            confidence: item.confidence != null ? String(item.confidence) : null,
+            assumptions: item.assumptions ?? null,
+            timesLogged: 1,
+            lastLoggedAt: now,
+          })
+          .returning({ id: schema.foodMemory.id });
+        itemMemoryIds.push(mem.id);
+
+        // aliases: canonical name + what the user typed
+        const aliases = [...new Set([normalizeAlias(item.name), normalizeAlias(item.typedName)])].filter(Boolean);
+        for (const alias of aliases) {
+          await tx
+            .insert(schema.foodAliases)
+            .values({ userId, foodMemoryId: mem.id, alias })
+            .onConflictDoNothing();
+        }
+
+        pendingEmbeddings.push({ id: mem.id, name: item.name });
       }
-    } else if (!item.saveToMemory) {
-      itemMemoryIds.push(null); // one-off: logged with its snapshot only
-    } else {
-      const [mem] = await db
-        .insert(schema.foodMemory)
+    }
+
+    // 2. Meal log + item snapshots (raw utterance always kept — RULES.md #6/#12).
+    let mealLogId: string | null = null;
+    if (input.items.length > 0) {
+      const [log] = await tx
+        .insert(schema.mealLogs)
         .values({
           userId,
-          canonicalName: item.name,
-          servingUnit: item.unit,
-          servingQty: String(item.perQty),
-          kcal: String(item.perUnit.kcal),
-          proteinG: String(item.perUnit.proteinG),
-          carbsG: String(item.perUnit.carbsG),
-          fatG: String(item.perUnit.fatG),
-          source: item.confidence != null ? "llm_estimate" : "user_entered",
-          confidence: item.confidence != null ? String(item.confidence) : null,
-          assumptions: item.assumptions ?? null,
-          timesLogged: 1,
-          lastLoggedAt: now,
+          loggedAt: now,
+          mealType: input.mealType,
+          rawInput: input.raw,
+          inputMode: input.inputMode,
+          photoPath: input.photoPath ?? null,
         })
-        .returning({ id: schema.foodMemory.id });
-      itemMemoryIds.push(mem.id);
+        .returning({ id: schema.mealLogs.id });
+      mealLogId = log.id;
 
-      // aliases: canonical name + what the user typed
-      const aliases = [...new Set([normalizeAlias(item.name), normalizeAlias(item.typedName)])].filter(Boolean);
-      for (const alias of aliases) {
-        await db
-          .insert(schema.foodAliases)
-          .values({ userId, foodMemoryId: mem.id, alias })
-          .onConflictDoNothing();
-      }
-
-      // Best-effort embedding for fuzzy matching — never blocks the log.
-      try {
-        const vec = await embedText(item.name);
-        await db
-          .update(schema.foodMemory)
-          .set({ embedding: vec })
-          .where(eq(schema.foodMemory.id, mem.id));
-      } catch {
-        /* fuzzy matching simply won't hit this food until backfilled */
+      for (let i = 0; i < input.items.length; i++) {
+        const item = input.items[i];
+        const t = itemTotals(item);
+        await tx.insert(schema.mealLogItems).values({
+          userId,
+          mealLogId: log.id,
+          foodMemoryId: itemMemoryIds[i],
+          name: item.name,
+          qty: String(item.qty),
+          unit: item.unit,
+          kcal: String(t.kcal),
+          proteinG: String(t.proteinG),
+          carbsG: String(t.carbsG),
+          fatG: String(t.fatG),
+        });
       }
     }
-  }
 
-  // 2. Meal log + item snapshots (raw utterance always kept — RULES.md #6/#12).
-  let mealLogId: string | null = null;
-  if (input.items.length > 0) {
-    const [log] = await db
-      .insert(schema.mealLogs)
-      .values({
-        userId,
-        loggedAt: now,
-        mealType: input.mealType,
-        rawInput: input.raw,
-        inputMode: input.inputMode,
-        photoPath: input.photoPath ?? null,
-      })
-      .returning({ id: schema.mealLogs.id });
-    mealLogId = log.id;
-
-    for (let i = 0; i < input.items.length; i++) {
-      const item = input.items[i];
-      const t = itemTotals(item);
-      await db.insert(schema.mealLogItems).values({
-        userId,
-        mealLogId: log.id,
-        foodMemoryId: itemMemoryIds[i],
-        name: item.name,
-        qty: String(item.qty),
-        unit: item.unit,
-        kcal: String(t.kcal),
-        proteinG: String(t.proteinG),
-        carbsG: String(t.carbsG),
-        fatG: String(t.fatG),
-      });
+    // 3. Water.
+    if (input.waterMl && input.waterMl > 0) {
+      await tx.insert(schema.waterLogs).values({ userId, loggedAt: now, ml: Math.round(input.waterMl) });
     }
-  }
 
-  // 3. Water.
-  if (input.waterMl && input.waterMl > 0) {
-    await db.insert(schema.waterLogs).values({ userId, loggedAt: now, ml: Math.round(input.waterMl) });
-  }
+    return { mealLogId };
+  });
 
-  return { mealLogId };
+  // Embeddings are optional and involve a network call, so keep them outside
+  // the database transaction. A failure never rolls back a successfully logged meal.
+  await Promise.allSettled(
+    pendingEmbeddings.map(async ({ id, name }) => {
+      const vec = await embedText(name);
+      await db
+        .update(schema.foodMemory)
+        .set({ embedding: vec })
+        .where(and(eq(schema.foodMemory.id, id), eq(schema.foodMemory.userId, userId)));
+    }),
+  );
+
+  return result;
 }
 
 /** Today's consumed totals for the dashboard. */
-export async function getTodayTotals(userId: string) {
+export async function getTodayMealTotals(userId: string, now = new Date()) {
   const db = getDb();
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const { start, end } = dayBounds(now);
 
   const [meals] = await db
     .select({
@@ -430,32 +419,57 @@ export async function getTodayTotals(userId: string) {
     })
     .from(schema.mealLogItems)
     .innerJoin(schema.mealLogs, eq(schema.mealLogItems.mealLogId, schema.mealLogs.id))
-    .where(and(eq(schema.mealLogs.userId, userId), sql`${schema.mealLogs.loggedAt} >= ${start.toISOString()}`));
-
-  const [water] = await db
-    .select({ ml: sql<number>`coalesce(sum(${schema.waterLogs.ml}), 0)::int` })
-    .from(schema.waterLogs)
-    .where(and(eq(schema.waterLogs.userId, userId), sql`${schema.waterLogs.loggedAt} >= ${start.toISOString()}`));
+    .where(
+      and(
+        eq(schema.mealLogs.userId, userId),
+        sql`${schema.mealLogs.loggedAt} >= ${start.toISOString()}`,
+        sql`${schema.mealLogs.loggedAt} < ${end.toISOString()}`,
+      ),
+    );
 
   return {
     kcal: Math.round(meals.kcal),
     proteinG: Math.round(meals.proteinG),
     carbsG: Math.round(meals.carbsG),
     fatG: Math.round(meals.fatG),
-    waterMl: water.ml,
   };
+}
+
+export async function getTodayTotals(userId: string) {
+  const db = getDb();
+  const now = new Date();
+  const { start, end } = dayBounds(now);
+  const [meals, [water]] = await Promise.all([
+    getTodayMealTotals(userId, now),
+    db
+      .select({ ml: sql<number>`coalesce(sum(${schema.waterLogs.ml}), 0)::int` })
+      .from(schema.waterLogs)
+      .where(
+        and(
+          eq(schema.waterLogs.userId, userId),
+          sql`${schema.waterLogs.loggedAt} >= ${start.toISOString()}`,
+          sql`${schema.waterLogs.loggedAt} < ${end.toISOString()}`,
+        ),
+      ),
+  ]);
+  return { ...meals, waterMl: water.ml };
 }
 
 /** Today's meal logs with items, newest first (for the /log feed). */
 export async function getTodayFeed(userId: string) {
   const db = getDb();
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const { start, end } = dayBounds();
 
   const logs = await db
     .select()
     .from(schema.mealLogs)
-    .where(and(eq(schema.mealLogs.userId, userId), sql`${schema.mealLogs.loggedAt} >= ${start.toISOString()}`))
+    .where(
+      and(
+        eq(schema.mealLogs.userId, userId),
+        sql`${schema.mealLogs.loggedAt} >= ${start.toISOString()}`,
+        sql`${schema.mealLogs.loggedAt} < ${end.toISOString()}`,
+      ),
+    )
     .orderBy(sql`${schema.mealLogs.loggedAt} desc`);
 
   if (logs.length === 0) return [];

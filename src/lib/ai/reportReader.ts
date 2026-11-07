@@ -4,6 +4,7 @@
  * SQL/code; the model only extracts and explains.
  */
 import { env } from "@/lib/env";
+import { aiError } from "@/lib/ai/client";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -41,6 +42,7 @@ export async function analyzeReport(base64: string, mimeType: string): Promise<R
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(30_000),
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [
@@ -52,7 +54,7 @@ export async function analyzeReport(base64: string, mimeType: string): Promise<R
       generationConfig: { temperature: 0.1, responseMimeType: "application/json", responseSchema: SCHEMA },
     }),
   });
-  if (!res.ok) throw new Error(`Report API error ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw aiError(res.status, await res.text().catch(() => ""));
   const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Report API returned no content");

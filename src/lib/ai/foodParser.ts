@@ -7,6 +7,7 @@
  * *used* for items that miss the user's food memory.
  */
 import { z } from "zod";
+import { normalizeAlooParatha } from "@/lib/services/quickParse";
 import { aiClient } from "@/lib/ai/client";
 import { FOOD_PARSE_SCHEMA, FOOD_PARSE_SYSTEM } from "@/lib/ai/prompts/foodParse";
 import { MEAL_TYPES, coerceConfidence, normalizeUnit, servingSize, type ParseResult, type ParsedItem } from "@/types/food";
@@ -38,7 +39,7 @@ export function normalizeLlmItems(items: LlmParseResult["items"]): ParsedItem[] 
     const unit = normalizeUnit(i.unit);
     const f = servingSize(unit) / i.qty;
     return {
-      name: i.name,
+      name: normalizeAlooParatha(i.name),
       qty: i.qty,
       unit,
       kcal: round1(i.totalKcal * f),
@@ -64,7 +65,7 @@ export function normalizeLlmResult(raw: unknown, source: string): ParseResult {
 export async function parseFoodUtterance(utterance: string): Promise<ParseResult> {
   const raw = await aiClient.generateJSON<unknown>({
     system: FOOD_PARSE_SYSTEM,
-    prompt: utterance,
+    prompt: normalizeAlooParatha(utterance),
     jsonSchema: FOOD_PARSE_SCHEMA as unknown as Record<string, unknown>,
     temperature: 0.2,
   });

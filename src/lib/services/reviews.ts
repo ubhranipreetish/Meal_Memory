@@ -2,10 +2,11 @@
  * Weekly/monthly reviews (Sprint 6): stats are SQL; narrative is LLM over
  * those stats only.
  */
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { aiClient } from "@/lib/ai/client";
 import { getDb, schema } from "@/lib/db";
 import type { Targets } from "@/lib/services/targets";
+import { appTimeZone, dateKey } from "@/lib/time";
 
 export interface PeriodStats {
   periodStart: string;
@@ -27,12 +28,13 @@ export async function computePeriodStats(userId: string, days: number): Promise<
   const end = new Date();
   const start = new Date(end.getTime() - days * 86400_000);
   const s = start.toISOString();
+  const timeZone = appTimeZone();
 
   const [profile] = await db.select().from(schema.profiles).where(eq(schema.profiles.id, userId)).limit(1);
   const targets = (profile?.targets as Targets | null) ?? null;
 
   const daily = (await db.execute(sql`
-    select date_trunc('day', ml.logged_at)::date as day,
+    select date_trunc('day', ml.logged_at at time zone ${timeZone})::date as day,
            sum(i.kcal)::float as kcal, sum(i.protein_g)::float as protein
     from meal_logs ml join meal_log_items i on i.meal_log_id = ml.id
     where ml.user_id=${userId} and ml.logged_at >= ${s}
@@ -51,8 +53,8 @@ export async function computePeriodStats(userId: string, days: number): Promise<
 
   const byProtein = [...daily].sort((a, b) => b.protein - a.protein);
   return {
-    periodStart: s.slice(0, 10),
-    periodEnd: end.toISOString().slice(0, 10),
+    periodStart: dateKey(start, timeZone),
+    periodEnd: dateKey(end, timeZone),
     daysWithLogs: daily.length,
     avgKcal: daily.length ? Math.round(daily.reduce((x, d) => x + d.kcal, 0) / daily.length) : 0,
     avgProteinG: daily.length ? Math.round(daily.reduce((x, d) => x + d.protein, 0) / daily.length) : 0,
@@ -75,17 +77,30 @@ export async function generateReview(userId: string, periodType: "weekly" | "mon
   });
 
   const db = getDb();
-  const [row] = await db
-    .insert(schema.reviews)
-    .values({
-      userId,
-      periodType,
-      periodStart: stats.periodStart,
-      periodEnd: stats.periodEnd,
-      stats,
-      narrative: narrative.trim(),
-    })
-    .returning({ id: schema.reviews.id });
+  const row = await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.reviews)
+      .where(
+        and(
+          eq(schema.reviews.userId, userId),
+          eq(schema.reviews.periodType, periodType),
+          eq(schema.reviews.periodStart, stats.periodStart),
+          eq(schema.reviews.periodEnd, stats.periodEnd),
+        ),
+      );
+    const [inserted] = await tx
+      .insert(schema.reviews)
+      .values({
+        userId,
+        periodType,
+        periodStart: stats.periodStart,
+        periodEnd: stats.periodEnd,
+        stats,
+        narrative: narrative.trim(),
+      })
+      .returning({ id: schema.reviews.id });
+    return inserted;
+  });
   return { id: row.id, stats, narrative: narrative.trim() };
 }
 

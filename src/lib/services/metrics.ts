@@ -7,6 +7,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { getTodayTotals } from "@/lib/services/foodMemory";
 import type { Targets } from "@/lib/services/targets";
+import { appTimeZone, dayBounds } from "@/lib/time";
 
 export interface CoachContext {
   profile: {
@@ -91,6 +92,8 @@ export async function getCoachContext(userId: string): Promise<CoachContext> {
   const now = new Date();
   const d7 = new Date(now.getTime() - 7 * 86400_000).toISOString();
   const d30 = new Date(now.getTime() - 30 * 86400_000).toISOString();
+  const { start: todayStart, end: todayEnd } = dayBounds(now);
+  const timeZone = appTimeZone();
 
   const [profileRow] = await db.select().from(schema.profiles).where(eq(schema.profiles.id, userId)).limit(1);
   const targets = (profileRow?.targets as Targets | null) ?? null;
@@ -100,14 +103,16 @@ export async function getCoachContext(userId: string): Promise<CoachContext> {
   const [workout] = (await db.execute(sql`
     select exists(
       select 1 from workout_sessions
-      where user_id=${userId} and started_at >= date_trunc('day', now())
+      where user_id=${userId}
+        and started_at >= ${todayStart.toISOString()}
+        and started_at < ${todayEnd.toISOString()}
     ) as done
   `)) as unknown as Array<{ done: boolean }>;
 
   // last-7-day nutrition per day, then aggregate
   const [nut] = (await db.execute(sql`
     with daily as (
-      select date_trunc('day', ml.logged_at) as day,
+      select date_trunc('day', ml.logged_at at time zone ${timeZone}) as day,
              sum(i.kcal)::float as kcal, sum(i.protein_g)::float as protein
       from meal_logs ml join meal_log_items i on i.meal_log_id = ml.id
       where ml.user_id=${userId} and ml.logged_at >= ${d7}

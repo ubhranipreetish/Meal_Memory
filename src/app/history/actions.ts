@@ -18,6 +18,7 @@ export async function relogAction(mealLogId: string): Promise<{ ok: boolean; err
   try {
     const user = await requireUser();
     await relogMeal(user.id, mealLogId);
+    revalidatePath("/settings");
     revalidatePath("/history");
     revalidatePath("/home");
     revalidatePath("/log");
@@ -32,6 +33,8 @@ export async function quickLogAction(foodMemoryId: string, mealType?: string): P
     const user = await requireUser();
     const slot = MEAL_TYPES.find((m) => m === mealType);
     await quickLogFood(user.id, foodMemoryId, undefined, slot);
+    revalidatePath("/history");
+    revalidatePath("/settings");
     revalidatePath("/log");
     revalidatePath("/home");
     return { ok: true };
