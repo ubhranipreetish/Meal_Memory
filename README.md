@@ -4,10 +4,12 @@ MealMemory is a calorie and macro diary for Indian home cooking. Describe a meal
 such as “two aloo parathas and a bowl of dahi,” review the nutrition estimate,
 and save dishes you eat often.
 
-- **Welcome tour and sign-in** introduce the app, then guide you through setting up your nutrition targets.
+- **Welcome and sign-in** introduce the app with a short demo. After signing in,
+  new users set up their nutrition targets.
 - **Today** shows calories, protein, carbs, and fat against your daily targets.
 - **Eat** supports text, voice, photo, and manual logging. Review quantities and
-  nutrition before saving. Pick a dish from your saved foods and confirm to log it.
+  nutrition before saving. Add more dishes to the same meal by voice, photo, or
+  manual entry, or pick a dish from your saved foods.
 - **This Week** shows seven days of calorie and protein trends, calories by meal
   category, and expandable daily meal logs.
 - **Profile** is where you edit nutrition goals, manage saved foods, and switch themes.
@@ -58,11 +60,11 @@ In Supabase Authentication → URL Configuration, allow
 
 | Path | Contents |
 | --- | --- |
-| `src/app/` | Routes, server actions, sign-in, tour, and meal screens |
+| `src/app/` | Landing page, sign-in, profile setup, meal screens, and server actions |
 | `src/components/` | Shared app shell, navigation, branding, and controls |
 | `src/lib/` | Supabase and Gemini clients, database schema, and meal services |
 | `src/types/` | Shared data types and validation |
-| `public/` | App icons and web app manifest |
+| `public/` | App icons, web app manifest, and finished landing-page media |
 | `supabase/` | Database bootstrap, row security, and storage setup |
 | `scripts/` | Database checks and development diagnostics |
 

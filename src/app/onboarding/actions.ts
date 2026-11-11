@@ -52,8 +52,6 @@ export async function saveProfile(raw: unknown): Promise<OnboardingResult> {
     activityLevel: input.activityLevel,
     gymExperience: input.gymExperience,
     dietType: input.dietType,
-    allergies: input.allergies ?? [],
-    foodsAvoided: input.foodsAvoided ?? [],
     targets,
     targetsHistory: [{ at: now.toISOString(), targets }],
     updatedAt: now,
@@ -61,8 +59,11 @@ export async function saveProfile(raw: unknown): Promise<OnboardingResult> {
 
   await db
     .insert(schema.profiles)
-    .values(row)
-    .onConflictDoUpdate({ target: schema.profiles.id, set: row });
+    .values({ ...row, allergies: input.allergies ?? [], foodsAvoided: input.foodsAvoided ?? [] })
+    .onConflictDoUpdate({
+      target: schema.profiles.id,
+      set: { ...row, allergies: input.allergies, foodsAvoided: input.foodsAvoided },
+    });
 
   revalidatePath("/settings");
   revalidatePath("/home");

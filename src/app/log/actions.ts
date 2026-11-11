@@ -47,7 +47,7 @@ export type PhotoActionResult =
   | { ok: false; error: string };
 
 /** Photo → vision analysis + storage upload → same resolve/confirm pipeline. */
-export async function photoAction(imageBase64: string, mimeType: string): Promise<PhotoActionResult> {
+export async function photoAction(imageBase64: string, mimeType: string, keepPhoto = true): Promise<PhotoActionResult> {
   try {
     const user = await requireUser();
     const upload = validateBase64Upload(imageBase64, mimeType, "photo");
@@ -55,17 +55,19 @@ export async function photoAction(imageBase64: string, mimeType: string): Promis
     const parsed = await analyzeMealPhoto(imageBase64, upload.mimeType);
     const items = await resolveParsedItems(user.id, parsed.items);
 
-    // Best-effort photo upload (session-scoped client → per-user folder RLS).
+    // A meal can keep one photo. Later photos can still supply more dishes.
     let photoPath: string | undefined;
-    try {
-      const supabase = await createClient();
-      const path = `${user.id}/${Date.now()}.${upload.extension}`;
-      const { error } = await supabase.storage
-        .from("meal-photos")
-        .upload(path, upload.buffer, { contentType: upload.mimeType });
-      if (!error) photoPath = path;
-    } catch {
-      /* photo storage is optional — never blocks logging */
+    if (keepPhoto && items.length) {
+      try {
+        const supabase = await createClient();
+        const path = `${user.id}/${Date.now()}.${upload.extension}`;
+        const { error } = await supabase.storage
+          .from("meal-photos")
+          .upload(path, upload.buffer, { contentType: upload.mimeType });
+        if (!error) photoPath = path;
+      } catch {
+        /* photo storage is optional — never blocks logging */
+      }
     }
 
     const resolved: ResolvedLog = {

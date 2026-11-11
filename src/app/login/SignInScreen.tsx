@@ -4,11 +4,9 @@ import { ArrowRight, Bookmark } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Brand } from "@/components/Brand";
-import { WelcomeTour } from "./WelcomeTour";
 import { signIn, signUp } from "./actions";
 
-export function SignInScreen({ showTour }: { showTour: boolean }) {
-  const [tourOpen, setTourOpen] = useState(showTour);
+export function SignInScreen() {
   const router = useRouter();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -24,15 +22,6 @@ export function SignInScreen({ showTour }: { showTour: boolean }) {
       if (!res.ok) setError(res.error);
       else router.push(res.redirectTo);
     });
-  }
-
-  if (tourOpen) {
-    return <WelcomeTour onFinish={() => {
-      const secure = window.location.protocol === "https:" ? "; Secure" : "";
-      document.cookie = `mm-tour=seen; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
-      setMode("signin");
-      setTourOpen(false);
-    }} />;
   }
 
   return (

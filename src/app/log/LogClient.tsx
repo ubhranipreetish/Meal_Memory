@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import {
   MEAL_LABELS,
   MEAL_TYPES,
@@ -16,6 +16,7 @@ import {
   type ResolvedLog,
 } from "@/types/food";
 import { ArrowUpRight, Camera, Check, Mic, Plus, Square, Trash2, X } from "lucide-react";
+import { DishMacroFields } from "@/components/DishMacroFields";
 import { SavedFoodPicker } from "./SavedFoodPicker";
 import type { listSavedFoods } from "@/lib/services/history";
 import { VOICE_SAMPLE_RATE, downsample, encodeWav, normalize, toBase64, toMono } from "@/lib/audio/wav";
@@ -41,6 +42,10 @@ interface FeedItem {
 /** Longest single recording we'll upload (keeps payloads and quota sane). */
 const MAX_RECORDING_MS = 30_000;
 const MAX_SOURCE_PHOTO_BYTES = 15 * 1024 * 1024;
+const MAX_REVIEW_ITEMS = 30;
+
+type CaptureMode = "voice" | "photo";
+type CaptureHandler = (resolved: ResolvedLog, mode: CaptureMode, photoPath?: string) => void;
 
 export function LogClient({
   feed,
@@ -54,159 +59,175 @@ export function LogClient({
   const router = useRouter();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const photoHandlerRef = useRef<CaptureHandler | null>(null);
+  const captureLock = useRef(false);
   const [mealType, setMealType] = useState<MealType>(suggestedMealType);
   const [text, setText] = useState("");
   const [pendingLog, setPendingLog] = useState<ResolvedLog | null>(null);
   const [pendingPhotoPath, setPendingPhotoPath] = useState<string | undefined>(undefined);
-  const [pendingVoice, setPendingVoice] = useState(false);
+  const [pendingMode, setPendingMode] = useState<"text" | CaptureMode>("text");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const recorderRef = useRef<{ stop: () => void } | null>(null);
   const [busy, startTransition] = useTransition();
 
-  /**
-   * Voice input (ADR-010): record → 16 kHz mono WAV → one Gemini call that
-   * transcribes AND parses. Gemini detects Hindi / English / Hinglish itself,
-   * which is why there is no language switch any more.
-   */
-  async function startVoice() {
-    if (recording) {
-      recorderRef.current?.stop();
+  function beginCapture() {
+    if (captureLock.current || busy) return false;
+    captureLock.current = true;
+    setCapturing(true);
+    setError(null);
+    setStatus(null);
+    return true;
+  }
+
+  function endCapture() {
+    captureLock.current = false;
+    setCapturing(false);
+    setStatus(null);
+  }
+
+  async function startVoice(onCapture: CaptureHandler) {
+    if (recorderRef.current) {
+      recorderRef.current.stop();
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setError("This browser can't record audio — type it instead.");
+      setError("This browser can't record audio. You can add the food manually.");
       return;
     }
-    let stream: MediaStream;
+    if (!beginCapture()) return;
+
+    let stream: MediaStream | undefined;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      setError("I need microphone access to log by voice — allow it and tap 🎤 again.");
-      return;
-    }
-
-    const chunks: Blob[] = [];
-    const rec = new MediaRecorder(stream);
-
-    rec.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    rec.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop());
-      setRecording(false);
-      recorderRef.current = null;
-      void transcribe(new Blob(chunks, { type: rec.mimeType }));
-    };
-
-    const stopTimer = setTimeout(() => rec.state !== "inactive" && rec.stop(), MAX_RECORDING_MS);
-    recorderRef.current = {
-      stop: () => {
-        clearTimeout(stopTimer);
+      const rec = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      const timer = setTimeout(() => stop(), MAX_RECORDING_MS);
+      function stop() {
+        clearTimeout(timer);
         if (rec.state !== "inactive") rec.stop();
-      },
-    };
-    setError(null);
-    setStatus(null);
-    setRecording(true);
-    rec.start();
+      }
+      rec.onstop = () => {
+        clearTimeout(timer);
+        stream?.getTracks().forEach((track) => track.stop());
+        recorderRef.current = null;
+        setRecording(false);
+        void transcribe(new Blob(chunks, { type: rec.mimeType }), onCapture);
+      };
+      rec.start();
+      recorderRef.current = { stop };
+      setRecording(true);
+    } catch {
+      stream?.getTracks().forEach((track) => track.stop());
+      endCapture();
+      setError("Couldn't start recording. Check microphone access and try again.");
+    }
   }
 
-  /** Recorded audio → WAV → server. Kept out of startVoice so it can be retried. */
-  async function transcribe(blob: Blob) {
-    if (blob.size === 0) {
-      setError("Didn't catch anything — tap 🎤 and speak.");
-      return;
-    }
-    setStatus("Listening back… 🎤");
-    let base64: string;
+  async function transcribe(blob: Blob, onCapture: CaptureHandler) {
+    let context: AudioContext | undefined;
     try {
-      const ctx = new (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
-      void ctx.close();
+      if (!blob.size) {
+        setError("Didn't catch anything. Try recording again.");
+        return;
+      }
+      setStatus("Reading recording…");
+      const AudioContextClass = window.AudioContext ??
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      context = new AudioContextClass();
+      const decoded = await context.decodeAudioData(await blob.arrayBuffer());
       const mono = toMono(Array.from({ length: decoded.numberOfChannels }, (_, i) => decoded.getChannelData(i)));
       const samples = normalize(downsample(mono, decoded.sampleRate, VOICE_SAMPLE_RATE));
-      base64 = toBase64(encodeWav(samples, VOICE_SAMPLE_RATE));
-    } catch {
-      setStatus(null);
-      setError("Couldn't read that recording — try again, or type it.");
-      return;
-    }
-
-    startTransition(async () => {
-      const res = await voiceAction(base64, "audio/wav");
-      setStatus(null);
+      const res = await voiceAction(toBase64(encodeWav(samples, VOICE_SAMPLE_RATE)), "audio/wav");
       if (!res.ok) {
-        setError(`${res.error} — you can type it instead.`);
+        setError(res.error);
         return;
       }
-      setText(res.transcript);
-      if (res.resolved.items.length === 0 && !res.resolved.waterMl) {
-        setError(
-          res.transcript
-            ? `I heard "${res.transcript}" but couldn't find a food in it — edit it and tap Log.`
-            : "Didn't catch that — tap 🎤 and try again.",
-        );
+      if (!pendingLog) setText(res.transcript);
+      if (!res.resolved.items.length && !res.resolved.waterMl) {
+        setError(res.transcript
+          ? `I heard "${res.transcript}" but couldn't find a food in it.`
+          : "Didn't catch that. Try recording again.");
         return;
       }
-      setPendingPhotoPath(undefined);
-      setPendingVoice(true);
-      openReview(res.resolved);
-    });
+      onCapture(res.resolved, "voice");
+    } catch {
+      setError("Couldn't process that recording. Try again or add the food manually.");
+    } finally {
+      void context?.close().catch(() => {});
+      endCapture();
+    }
   }
 
-  /** Photo input: downscale client-side, then vision-analyze → review card. */
-  function onPhotoPicked(file: File) {
-    setError(null);
-    if (!file.type.startsWith("image/")) {
-      setError("Choose an image file (JPEG, PNG, HEIC, or WebP).");
-      return;
-    }
-    if (file.size > MAX_SOURCE_PHOTO_BYTES) {
-      setError("That photo is too large — choose one under 15 MB.");
-      return;
-    }
-    setStatus("Reading photo…");
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const MAX = 1024;
-      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+  async function onPhotoPicked(file: File, onCapture: CaptureHandler) {
+    if (!beginCapture()) return;
+    let url: string | undefined;
+    try {
+      if (!file.type.startsWith("image/")) {
+        setError("Choose an image file (JPEG, PNG, HEIC, or WebP).");
+        return;
+      }
+      if (file.size > MAX_SOURCE_PHOTO_BYTES) {
+        setError("That photo is too large. Choose one under 15 MB.");
+        return;
+      }
+      setStatus("Reading photo…");
+      const img = new Image();
+      url = URL.createObjectURL(file);
+      img.src = url;
+      await img.decode();
+      const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
       const canvas = document.createElement("canvas");
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas unavailable");
+      context.drawImage(img, 0, 0, canvas.width, canvas.height);
       const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-      setStatus("Recognizing your meal… 📷");
-      startTransition(async () => {
-        const res = await photoAction(base64, "image/jpeg");
-        if (!res.ok) {
-          setError(`${res.error} — you can add it manually below.`);
-          setShowManual(true);
-          setStatus(null);
-          return;
-        }
-        if (res.resolved.items.length === 0) {
-          setStatus(null);
-          setError("Couldn't spot any food in that photo — try another angle or add manually.");
-          return;
-        }
-        setPendingPhotoPath(res.photoPath);
-        setPendingVoice(false);
-        openReview(res.resolved);
-        setStatus(null);
-      });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      setStatus(null);
-      setError("Couldn't read that image — try a JPEG, PNG, or WebP photo.");
-    };
-    img.src = url;
+      setStatus("Recognizing your meal…");
+      const res = await photoAction(base64, "image/jpeg", !pendingPhotoPath);
+      if (!res.ok) {
+        setError(res.error);
+        if (!pendingLog) setShowManual(true);
+        return;
+      }
+      if (!res.resolved.items.length) {
+        setError("Couldn't spot any food in that photo. Try another angle or add it manually.");
+        return;
+      }
+      onCapture(res.resolved, "photo", res.photoPath);
+    } catch {
+      setError("Couldn't process that photo. Try again or add the food manually.");
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+      endCapture();
+    }
   }
+
+  const openCapturedReview: CaptureHandler = (resolved, mode, photoPath) => {
+    setPendingPhotoPath(photoPath);
+    setPendingMode(mode);
+    openReview(resolved);
+  };
+
+  function pickPhoto(onCapture: CaptureHandler) {
+    photoHandlerRef.current = onCapture;
+    fileRef.current?.click();
+  }
+
+  const feedback = (
+    <>
+      {recording && <p role="status" className="small mt-3" style={{ color: "#e5484d" }}>Listening… Tap stop when you’re done.</p>}
+      {status && !error && !recording && <p role="status" className="small green mt-3">{status}</p>}
+      {error && <p role="alert" className="small danger mt-3">{error}</p>}
+    </>
+  );
 
   function openReview(r: ResolvedLog) {
     if (r.mealTypeExplicit) setMealType(r.mealType);
@@ -214,7 +235,7 @@ export function LogClient({
   }
 
   function submitUtterance(utterance: string) {
-    if (!utterance.trim()) return;
+    if (!utterance.trim() || captureLock.current || busy) return;
     setError(null);
     setStatus("Understanding…");
     startTransition(async () => {
@@ -234,7 +255,7 @@ export function LogClient({
       const slot = r.mealTypeExplicit ? r.mealType : mealType;
       if (r.items.length > 0) {
         setPendingPhotoPath(undefined);
-        setPendingVoice(false);
+        setPendingMode("text");
         openReview(r);
         setStatus(null);
         return;
@@ -256,13 +277,14 @@ export function LogClient({
   }
 
   function confirmPending(edited: ResolvedLog, slot: MealType) {
+    if (captureLock.current || busy) return;
     setError(null);
     startTransition(async () => {
       const c = await confirmAction({
         ...toConfirmPayload(edited),
         mealType: slot,
         photoPath: pendingPhotoPath,
-        inputMode: pendingPhotoPath ? "photo" : pendingVoice ? "voice" : "text",
+        inputMode: pendingMode,
       });
       if (!c.ok) {
         setError(c.error);
@@ -271,7 +293,7 @@ export function LogClient({
       const saved = edited.items.filter((i) => i.status === "new" && (i as Partial<ReviewItem>).saveToMemory !== false).length;
       setPendingLog(null);
       setPendingPhotoPath(undefined);
-      setPendingVoice(false);
+      setPendingMode("text");
       setText("");
       setMealType(slot);
       setStatus(
@@ -285,6 +307,20 @@ export function LogClient({
 
   return (
     <>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          const onCapture = photoHandlerRef.current;
+          photoHandlerRef.current = null;
+          event.currentTarget.value = "";
+          if (file && onCapture) void onPhotoPicked(file, onCapture);
+        }}
+      />
       {/* ── Which slot of the day ─────────────────────────────────────── */}
       {!pendingLog && (
         <div className="section chips">
@@ -319,40 +355,15 @@ export function LogClient({
           />
           <div className="row between">
             <div className="row">
-              <button
-                type="button"
-                aria-label={recording ? "Stop recording" : "Log by voice"}
-                title="Speak in English, Hindi or Hinglish — I'll work out which"
-                className="icon"
-                style={recording ? { borderColor: "#e5484d", color: "#e5484d" } : undefined}
-                onClick={startVoice}
-                disabled={busy}
-              >
-                {recording ? <Square size={16} fill="currentColor" /> : <Mic size={20} />}
-              </button>
-              <button
-                type="button"
-                aria-label="Log from photo"
-                className="icon"
-                onClick={() => fileRef.current?.click()}
-                disabled={busy}
-              >
-                <Camera size={20} />
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onPhotoPicked(f);
-                  e.target.value = "";
-                }}
+              <CaptureButtons
+                busy={busy}
+                capturing={capturing}
+                recording={recording}
+                onVoice={() => void startVoice(openCapturedReview)}
+                onPhoto={() => pickPhoto(openCapturedReview)}
               />
             </div>
-            <button className="primary" disabled={busy || !text.trim()}>
+            <button className="primary" disabled={busy || capturing || !text.trim()}>
               {busy ? "Reading…" : "Log meal"}
               <ArrowUpRight size={18} />
             </button>
@@ -360,25 +371,18 @@ export function LogClient({
         </form>
       )}
 
-      {recording && (
-        <p className="row small mt-3" style={{ color: "#e5484d" }}>
-          <span style={{ width: 8, height: 8, borderRadius: 99, background: "#e5484d" }} className="animate-pulse" />
-          Listening — say what you ate, in any language. Tap the square to stop.
-        </p>
-      )}
-      {status && !error && !recording && <p className="small green mt-3">{status}</p>}
-      {error && <p className="small danger mt-3">{error}</p>}
+      {!pendingLog && feedback}
 
       {!pendingLog && (
         <div className="section row">
-          <SavedFoodPicker foods={savedFoods} meal={mealType} disabled={busy} onLogged={(name) => {
+          <SavedFoodPicker foods={savedFoods} meal={mealType} disabled={busy || capturing} onLogged={(name) => {
             setError(null);
             setStatus(`${name} logged to ${MEAL_LABELS[mealType].toLowerCase()}`);
             router.refresh();
           }} />
           <button type="button" className="icon green shrink-0" aria-label="Add manually"
             aria-expanded={showManual} aria-controls="manual-meal-entry" title="Add manually"
-            disabled={busy} onClick={() => setShowManual((shown) => !shown)}>
+            disabled={busy || capturing} onClick={() => setShowManual((shown) => !shown)}>
             <Plus size={22} aria-hidden="true" />
           </button>
         </div>
@@ -389,13 +393,20 @@ export function LogClient({
           key={pendingLog.raw + pendingLog.items.length}
           resolved={pendingLog}
           initialSlot={mealType}
-          source={pendingPhotoPath ? "photo" : pendingVoice ? "voice" : "text"}
+          source={pendingMode}
           busy={busy}
+          capturing={capturing}
+          feedback={feedback}
+          recording={recording}
+          onVoice={startVoice}
+          onPhoto={pickPhoto}
+          onAttachPhoto={(path) => setPendingPhotoPath((current) => current ?? path)}
           onConfirm={confirmPending}
           onCancel={() => {
             setPendingLog(null);
             setPendingPhotoPath(undefined);
-            setPendingVoice(false);
+            setPendingMode("text");
+            setError(null);
           }}
         />
       )}
@@ -403,7 +414,7 @@ export function LogClient({
       {!pendingLog && (
         <div id="manual-meal-entry" className={showManual ? "section" : undefined} hidden={!showManual}>
           {showManual && (
-            <ManualEntry busy={busy} mealType={mealType} onDone={() => {
+            <ManualEntry busy={busy || capturing} mealType={mealType} onDone={() => {
               setShowManual(false);
               setStatus(`Logged to ${MEAL_LABELS[mealType]} ✓`);
               router.refresh();
@@ -418,6 +429,41 @@ export function LogClient({
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
+
+function CaptureButtons({ busy, capturing, recording, onVoice, onPhoto, withLabels = false }: {
+  busy: boolean;
+  capturing: boolean;
+  recording: boolean;
+  onVoice: () => void;
+  onPhoto: () => void;
+  withLabels?: boolean;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={recording ? "Stop recording" : "Log by voice"}
+        className={withLabels ? "secondary" : "icon"}
+        style={recording ? { borderColor: "#e5484d", color: "#e5484d" } : undefined}
+        onClick={onVoice}
+        disabled={busy || (capturing && !recording)}
+      >
+        {recording ? <Square size={16} fill="currentColor" aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}
+        {withLabels && (recording ? "Stop recording" : "Voice")}
+      </button>
+      <button
+        type="button"
+        aria-label="Log from photo"
+        className={withLabels ? "secondary" : "icon"}
+        onClick={onPhoto}
+        disabled={busy || capturing}
+      >
+        <Camera size={20} aria-hidden="true" />
+        {withLabels && "Photo"}
+      </button>
+    </>
+  );
+}
 
 function MealSelect({ value, onChange, disabled, label = "Meal" }: {
   value: string;
@@ -491,6 +537,12 @@ function ReviewCard({
   initialSlot,
   source,
   busy,
+  capturing,
+  feedback,
+  recording,
+  onVoice,
+  onPhoto,
+  onAttachPhoto,
   onConfirm,
   onCancel,
 }: {
@@ -498,10 +550,21 @@ function ReviewCard({
   initialSlot: MealType;
   source: "text" | "voice" | "photo";
   busy: boolean;
+  capturing: boolean;
+  feedback: ReactNode;
+  recording: boolean;
+  onVoice: (onCapture: CaptureHandler) => Promise<void>;
+  onPhoto: (onCapture: CaptureHandler) => void;
+  onAttachPhoto: (path: string) => void;
   onConfirm: (edited: ResolvedLog, slot: MealType) => void;
   onCancel: () => void;
 }) {
   const [slot, setSlot] = useState<MealType>(initialSlot);
+  const [showAddOptions, setShowAddOptions] = useState(false);
+  const [additionError, setAdditionError] = useState<string | null>(null);
+  const [raw, setRaw] = useState(resolved.raw);
+  const [waterMl, setWaterMl] = useState(resolved.waterMl);
+  const addOptionsId = useId();
   const [, startEstimate] = useTransition();
   const nextItemId = useRef(resolved.items.length);
   const [items, setItems] = useState<ReviewItem[]>(() =>
@@ -569,6 +632,8 @@ function ReviewCard({
   };
 
   const addItem = () => {
+    if (items.length >= MAX_REVIEW_ITEMS) return;
+    setAdditionError(null);
     const id = nextItemId.current++;
     setItems((prev) => [
       ...prev,
@@ -586,6 +651,32 @@ function ReviewCard({
         _edited: true,
       },
     ]);
+    setShowAddOptions(false);
+  };
+
+  const appendCapture: CaptureHandler = (addition, _mode, photoPath) => {
+    if (items.length + addition.items.length > MAX_REVIEW_ITEMS) {
+      setAdditionError(`A meal can have up to ${MAX_REVIEW_ITEMS} dishes. Remove a dish or log the rest separately.`);
+      return;
+    }
+    const totalWater = (waterMl ?? 0) + (addition.waterMl ?? 0);
+    if (totalWater > 10_000) {
+      setAdditionError("Log the extra water separately. This meal already has too much water to save together.");
+      return;
+    }
+    const newItems = addition.items.map((item) => ({
+      ...item,
+      id: nextItemId.current++,
+      saveToMemory: true,
+      updateMemory: false,
+      _edited: false,
+    }));
+    setItems((previous) => [...previous, ...newItems]);
+    setRaw((previous) => `${previous} + ${addition.raw}`.slice(0, 2000));
+    setWaterMl(totalWater || undefined);
+    if (photoPath) onAttachPhoto(photoPath);
+    setAdditionError(null);
+    setShowAddOptions(false);
   };
 
   const totals = useMemo(
@@ -631,6 +722,7 @@ function ReviewCard({
                 type="button"
                 aria-label={`Remove ${item.name || "dish"}`}
                 className="icon shrink-0 self-end"
+                disabled={busy || capturing}
                 onClick={() => setItems((prev) => prev.filter((dish) => dish.id !== item.id))}
               >
                 <X size={17} aria-hidden="true" />
@@ -670,24 +762,7 @@ function ReviewCard({
               <legend className="small muted mb-1">
                 Nutrition per {item.perQty > 1 ? `${item.perQty} ` : ""}{item.unit}
               </legend>
-              <div className="dish-macros">
-                {(["kcal", "proteinG", "carbsG", "fatG"] as const).map((key, index) => (
-                  <label className="small muted" key={key}>
-                    {["Calories", "Protein", "Carbs", "Fat"][index]}
-                    <input
-                      className="field mt-1"
-                      type="number"
-                      min="0"
-                      step="any"
-                      inputMode="decimal"
-                      aria-label={`Dish ${idx + 1} ${["calories in kcal", "protein in grams", "carbs in grams", "fat in grams"][index]}`}
-                      value={item.perUnit[key]}
-                      onChange={(e) => setMacro(idx, key, e.target.value)}
-                    />
-                    <span className="dish-unit">{index === 0 ? "kcal" : "g"}</span>
-                  </label>
-                ))}
-              </div>
+              <DishMacroFields macros={item.perUnit} dishNumber={idx + 1} onChange={(key, value) => setMacro(idx, key, value)} />
             </fieldset>
 
             {item.estimating && <p role="status" className="small green mt-2">Updating nutrition…</p>}
@@ -732,11 +807,36 @@ function ReviewCard({
         );
       })}
 
-      <button type="button" className="green small mt-2" onClick={addItem}>
-        + Add another item
+      <button type="button" className="row green small min-h-11 mt-2"
+        aria-expanded={showAddOptions} aria-controls={addOptionsId}
+        disabled={busy || capturing || items.length >= MAX_REVIEW_ITEMS}
+        onClick={() => {
+          setAdditionError(null);
+          setShowAddOptions((open) => !open);
+        }}>
+        <Plus size={16} aria-hidden="true" /> Add another item
       </button>
+      <div id={addOptionsId} hidden={!showAddOptions}>
+        {showAddOptions && (
+          <div className="row flex-wrap mt-2">
+            <CaptureButtons
+              busy={busy}
+              capturing={capturing}
+              recording={recording}
+              onVoice={() => void onVoice(appendCapture)}
+              onPhoto={() => onPhoto(appendCapture)}
+              withLabels
+            />
+            <button type="button" className="secondary" disabled={busy || capturing} onClick={addItem}>
+              <Plus size={18} aria-hidden="true" /> Manual
+            </button>
+          </div>
+        )}
+      </div>
+      {additionError && <p role="alert" className="small danger mt-2">{additionError}</p>}
+      {feedback}
 
-      {resolved.waterMl ? <p className="small muted mt-2">+ {resolved.waterMl} ml water</p> : null}
+      {waterMl ? <p className="small muted mt-2">+ {waterMl} ml water</p> : null}
 
       <div className="row between mt-3">
         <div>
@@ -754,10 +854,10 @@ function ReviewCard({
       </div>
 
       <div className="row mt-4">
-        <button className="secondary" onClick={onCancel} disabled={busy}>
+        <button className="secondary" onClick={onCancel} disabled={busy || capturing}>
           Cancel
         </button>
-        <button className="primary flex-1" onClick={() => onConfirm({ ...resolved, mealType: slot, items }, slot)} disabled={busy || !valid}>
+        <button className="primary flex-1" onClick={() => onConfirm({ ...resolved, raw, waterMl, mealType: slot, items }, slot)} disabled={busy || capturing || !valid}>
           {busy ? "Saving…" : `Log ${MEAL_LABELS[slot].toLowerCase()}`} <Check size={18} />
         </button>
       </div>

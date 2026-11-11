@@ -33,12 +33,20 @@ next-env.d.ts
 /supabase/.temp/
 /supabase/.branches/
 
-# Local workspace notes and unused branding concepts
+# Local workspace notes and media source files
 /.claude/
 /CLAUDE.md
+/BACKLOG.md
 /context.md
 /docs/
+/local-media/
 /public/brand/
+
+# Landing-page media
+/public/demo/*
+!/public/demo/meal-memory-story.mp4
+!/public/demo/meal-memory-story-poster.webp
+!/public/demo/meal-memory-story.vtt
 
 # OS files and debug logs
 .DS_Store

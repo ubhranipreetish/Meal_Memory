@@ -1,9 +1,22 @@
-import { redirect } from "next/navigation";
+import { ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { Brand } from "@/components/Brand";
+import { LandingHero } from "./LandingHero";
 
-// Middleware sends unauthenticated users to /login; authenticated users land
-// on /home (which routes to /onboarding if no profile exists yet).
-// The design prototype lives at /preview — it must never sit on the app's
-// front door, where its sample numbers read as the user's real day.
 export default function RootPage() {
-  redirect("/home");
+  return (
+    <main className="app app-backdrop public-landing">
+      <header><Brand size={38} /></header>
+      <section className="public-landing-layout" aria-labelledby="welcome-heading">
+        <div className="public-landing-copy">
+          <h1 id="welcome-heading">Welcome to <span>Meal Memory</span></h1>
+          <p className="muted">Describe your meal or snap a photo. Track your calories and macros, and save the dishes you eat most.</p>
+          <Link href="/login" className="primary">
+            Sign in <ArrowRight size={18} aria-hidden="true" />
+          </Link>
+        </div>
+        <LandingHero />
+      </section>
+    </main>
+  );
 }

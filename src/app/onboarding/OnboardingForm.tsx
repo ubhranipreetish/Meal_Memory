@@ -26,8 +26,6 @@ type Form = {
   goal: (typeof GOALS)[number];
   activityLevel: (typeof ACTIVITY_LEVELS)[number];
   dietType: string;
-  allergies: string;
-  foodsAvoided: string;
 };
 
 const initial: Form = {
@@ -39,8 +37,6 @@ const initial: Form = {
   goal: "build_muscle",
   activityLevel: "moderate",
   dietType: "",
-  allergies: "",
-  foodsAvoided: "",
 };
 
 const basicsSchema = onboardingSchema.pick({ name: true, age: true, gender: true, heightCm: true, weightKg: true });
@@ -112,8 +108,6 @@ export function OnboardingForm({ previewOnly = false, fromSettings = false }: { 
       goal: form.goal,
       activityLevel: form.activityLevel,
       dietType: form.dietType || undefined,
-      allergies: form.allergies ? form.allergies.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
-      foodsAvoided: form.foodsAvoided ? form.foodsAvoided.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
     };
     const parsed = onboardingSchema.safeParse(payload);
     if (!parsed.success) {
@@ -206,13 +200,6 @@ export function OnboardingForm({ previewOnly = false, fromSettings = false }: { 
               {DIET_TYPES.map((d) => <option key={d} value={d}>{DIET_LABELS[d]}</option>)}
             </select>
           </Field>
-          <details>
-            <summary className="green small">Allergies and foods you avoid (optional)</summary>
-            <div className="spaced mt-2">
-              <Field label="Allergies (comma-separated)"><input className={inputCls} value={form.allergies} onChange={(e) => set("allergies", e.target.value)} placeholder="peanuts, shellfish" /></Field>
-              <Field label="Foods you avoid (comma-separated)"><input className={inputCls} value={form.foodsAvoided} onChange={(e) => set("foodsAvoided", e.target.value)} placeholder="beef" /></Field>
-            </div>
-          </details>
         </section>
       )}
 
