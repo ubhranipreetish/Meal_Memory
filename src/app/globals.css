@@ -205,6 +205,7 @@ h2 {
 .app .food-dialog { position:fixed; inset:0; margin:auto; width:min(calc(100% - 24px), 32rem); max-height:min(80dvh, 40rem); overflow:auto; background:var(--pg-card); color:var(--pg-foreground); }
 .food-dialog::backdrop { background:rgb(0 0 0 / .64); }
 .app .saved-food-option { width:100%; padding:10px 0; text-align:left; }
+.app .saved-food-option:active { opacity:0.6; }
 .saved-food-row + .saved-food-row { border-top:1px solid var(--pg-border); }
 
 .skeleton { display:block; border-radius:8px; background:var(--pg-muted); animation:skeleton-pulse 1.5s ease-in-out infinite alternate; }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { LogOut, Pencil } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -60,7 +60,16 @@ export default async function SettingsPage() {
 
       {/* Body stats & profile details */}
       <section className="card section">
-        <h2>Body stats &amp; details</h2>
+        <div className="row between items-center">
+          <h2>Body stats &amp; details</h2>
+          <Link
+            href="/onboarding?from=settings"
+            className="secondary small row items-center gap-1"
+            style={{ minHeight: 36, padding: "6px 14px" }}
+          >
+            <Pencil size={14} aria-hidden="true" /> Edit
+          </Link>
+        </div>
         <div className="mt-3">
           <Row label="Name" value={profile.name ?? "—"} />
           <Row label="Gender" value={profile.gender ?? "—"} />
@@ -68,10 +77,6 @@ export default async function SettingsPage() {
           <Row label="Weight" value={profile.currentWeightKg ? `${profile.currentWeightKg} kg` : "—"} />
           <Row label="Diet" value={dietDisplay} />
         </div>
-        <Link href="/onboarding?from=settings" className="secondary mt-4 w-full justify-center">
-          Edit body stats &amp; preferences
-        </Link>
-        <p className="small muted mt-2">Update your age, height, weight, activity level, or dietary preferences.</p>
       </section>
 
       <section className="card section row between">
