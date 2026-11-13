@@ -30,7 +30,7 @@ export async function saveProfile(raw: unknown): Promise<OnboardingResult> {
     return { ok: false, error: "Not signed in" };
   }
 
-  const targets = calcTargets({
+  const calculated = calcTargets({
     gender: input.gender,
     age: input.age,
     heightCm: input.heightCm,
@@ -38,6 +38,19 @@ export async function saveProfile(raw: unknown): Promise<OnboardingResult> {
     activityLevel: input.activityLevel,
     goal: input.goal,
   });
+
+  const targets = input.customTargets
+    ? {
+        ...calculated,
+        kcal: input.customTargets.kcal,
+        proteinG: input.customTargets.proteinG,
+        carbsG: input.customTargets.carbsG,
+        fatG: input.customTargets.fatG,
+        fiberG: input.customTargets.fiberG ?? calculated.fiberG,
+        waterMl: input.customTargets.waterMl,
+        steps: input.customTargets.steps ?? calculated.steps,
+      }
+    : calculated;
 
   const db = getDb();
   const now = new Date();

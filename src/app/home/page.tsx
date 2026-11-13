@@ -28,7 +28,8 @@ export default async function HomePage() {
 
   const over = c.kcal > t.kcal;
   const kcalPct = t.kcal > 0 ? Math.min(100, (c.kcal / t.kcal) * 100) : 0;
-  const proteinLeft = Math.max(t.proteinG - c.proteinG, 0);
+  const fiberTarget = t.fiberG ?? Math.max(25, Math.round((t.kcal / 1000) * 14));
+  const fiberConsumed = c.fiberG ?? 0;
 
   return (
     <AppShell
@@ -71,48 +72,41 @@ export default async function HomePage() {
         Log a meal <Plus size={18} aria-hidden="true" />
       </Link>
 
-      {/* Protein first, then the other macros */}
+      {/* Uniform 2x2 grid for all 4 macros */}
       <section className="card section home-macros" aria-label="Daily macros">
-        <div>
-          <div className="row between">
-            <h2>Protein first</h2>
-            <span className="green home-protein-grams">
-              {c.proteinG}g <span className="muted small">/ {t.proteinG}g</span>
-            </span>
-          </div>
-          <div className="bar">
-            <i style={{ width: `${t.proteinG > 0 ? Math.min((c.proteinG / t.proteinG) * 100, 100) : 0}%` }} />
-          </div>
-          <p className="small muted mt-2">
-            {proteinLeft > 0 ? `${proteinLeft}g to go. A little at each meal.` : "Protein target hit. Nice work."}
-          </p>
-        </div>
-        <div className="grid2 mt-4">
+        <div className="grid2" style={{ rowGap: 20 }}>
           {([
-            ["Carbs", c.carbsG, t.carbsG],
-            ["Fat", c.fatG, t.fatG],
-          ] as const).map(([name, value, target]) => (
-            <div key={name}>
-              <div className="row between small">
-                <span>{name}</span>
-                <span className="muted">
-                  {value}/{target}g
-                </span>
+            { name: "Protein", current: c.proteinG, target: t.proteinG },
+            { name: "Fibre", current: fiberConsumed, target: fiberTarget },
+            { name: "Carbs", current: c.carbsG, target: t.carbsG },
+            { name: "Fat", current: c.fatG, target: t.fatG },
+          ] as const).map(({ name, current, target }) => {
+            const left = Math.max(target - current, 0);
+            const over = current > target;
+            const overAmt = current - target;
+            const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+            return (
+              <div key={name}>
+                <div className="row between">
+                  <h2>{name}</h2>
+                  <span className="green home-protein-grams">
+                    {current}g <span className="muted small">/ {target}g</span>
+                  </span>
+                </div>
+                <div className="bar">
+                  <i
+                    style={{
+                      width: `${pct}%`,
+                      background: over ? "var(--pg-amber)" : undefined,
+                    }}
+                  />
+                </div>
+                <p className="small muted mt-2">
+                  {over ? `${overAmt}g over.` : left > 0 ? `${left}g to go.` : `${name} target hit.`}
+                </p>
               </div>
-              <div className="bar">
-                <i
-                  style={{
-                    width: `${target > 0 ? Math.min((value / target) * 100, 100) : 0}%`,
-                    opacity: 0.6,
-                    background: value > target ? "var(--pg-amber)" : undefined,
-                  }}
-                />
-              </div>
-              <p className="small muted mt-1">
-                {value > target ? `${value - target}g over` : `${target - value}g remaining`}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

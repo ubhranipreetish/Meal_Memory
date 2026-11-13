@@ -39,6 +39,16 @@ describe("itemTotals", () => {
     const milk = { kcal: 60, proteinG: 3.2, carbsG: 4.8, fatG: 3.2 };
     expect(itemTotals({ qty: 250, perQty: 100, perUnit: milk })).toEqual({ kcal: 150, proteinG: 8, carbsG: 12, fatG: 8 });
   });
+  it("scales items with fiberG", () => {
+    const apple = { kcal: 95, proteinG: 0.5, carbsG: 25, fatG: 0.3, fiberG: 4.4 };
+    expect(itemTotals({ qty: 2, perQty: 1, perUnit: apple })).toEqual({
+      kcal: 190,
+      proteinG: 1,
+      carbsG: 50,
+      fatG: 0.6,
+      fiberG: 8.8,
+    });
+  });
   it("never divides by zero", () => {
     expect(itemTotals({ qty: 2, perQty: 0, perUnit: egg }).kcal).toBe(0);
   });

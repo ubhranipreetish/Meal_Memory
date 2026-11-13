@@ -76,6 +76,7 @@ export const parsedItemSchema = z.object({
   proteinG: z.number().min(0),
   carbsG: z.number().min(0),
   fatG: z.number().min(0),
+  fiberG: z.number().min(0).default(0),
   confidence: z.number().min(0).max(1),
   assumptions: z.string().optional().nullable(),
 });
@@ -93,6 +94,7 @@ export interface PerUnit {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG?: number;
 }
 
 /** An item after resolution against the user's food memory. */
@@ -136,6 +138,7 @@ export function itemTotals(item: { qty: number; perQty: number; perUnit: PerUnit
     proteinG: r(item.perUnit.proteinG),
     carbsG: r(item.perUnit.carbsG),
     fatG: r(item.perUnit.fatG),
+    ...(item.perUnit.fiberG !== undefined ? { fiberG: r(item.perUnit.fiberG) } : {}),
   };
 }
 
@@ -153,6 +156,7 @@ export const confirmItemSchema = z.object({
     proteinG: z.number().min(0).max(10_000),
     carbsG: z.number().min(0).max(10_000),
     fatG: z.number().min(0).max(10_000),
+    fiberG: z.number().min(0).max(10_000).default(0).optional(),
   }),
   confidence: z.number().min(0).max(1).optional(),
   assumptions: z.string().nullable().optional(),

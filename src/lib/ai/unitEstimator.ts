@@ -25,6 +25,7 @@ Given a food name and ONE serving description, return that serving's nutrition.
 - A "bowl" is ~200 g of loose food; a "plate" is a full composed meal; a "glass" ~250 ml; a "cup" ~150 ml.
 - Whole fruit as "piece": medium banana ~120 g, apple ~180 g, orange ~130 g.
 - Count every component in the name (with milk, with ghee, with cheese) toward the numbers.
+- Estimate dietary fibre in fiberG (nuts, seeds, legumes, fruits, vegetables, whole grains; 0 for meat, eggs, dairy, oils).
 - "approxGrams" is the weight in grams of that one serving (for g/ml servings, just repeat 100).
 - "confidence" is a number between 0 and 1.
 - "assumptions" states the size/preparation you assumed, under 12 words.`;
@@ -36,11 +37,12 @@ const UNIT_ESTIMATE_SCHEMA = {
     proteinG: { type: "number" },
     carbsG: { type: "number" },
     fatG: { type: "number" },
+    fiberG: { type: "number" },
     approxGrams: { type: "number" },
     confidence: { type: "number" },
     assumptions: { type: "string", nullable: true },
   },
-  required: ["kcal", "proteinG", "carbsG", "fatG", "approxGrams", "confidence"],
+  required: ["kcal", "proteinG", "carbsG", "fatG", "fiberG", "approxGrams", "confidence"],
 } as const;
 
 const unitEstimateSchema = z.object({
@@ -48,6 +50,7 @@ const unitEstimateSchema = z.object({
   proteinG: z.number().min(0),
   carbsG: z.number().min(0),
   fatG: z.number().min(0),
+  fiberG: z.number().min(0).default(0).optional(),
   approxGrams: z.number().min(0),
   confidence: z.number(),
   assumptions: z.string().nullable().optional(),

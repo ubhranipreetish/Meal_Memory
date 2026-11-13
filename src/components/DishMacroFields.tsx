@@ -7,6 +7,7 @@ const fields = [
   { key: "proteinG", label: "Protein", unit: "g", spokenUnit: "grams" },
   { key: "carbsG", label: "Carbs", unit: "g", spokenUnit: "grams" },
   { key: "fatG", label: "Fat", unit: "g", spokenUnit: "grams" },
+  { key: "fiberG", label: "Fibre", unit: "g", spokenUnit: "grams" },
 ] as const;
 
 export function DishMacroFields({ macros, dishNumber, onChange }: {
@@ -27,11 +28,11 @@ export function DishMacroFields({ macros, dishNumber, onChange }: {
               step="any"
               inputMode="decimal"
               aria-label={`Dish ${dishNumber} ${label.toLowerCase()} in ${spokenUnit}`}
-              value={macros[key]}
+              value={macros[key] ?? 0}
               onChange={(event) => onChange(key, event.target.value)}
             />
           ) : (
-            <output className="field mt-1 block">{macros[key]}</output>
+            <output className="field mt-1 block">{macros[key] ?? 0}</output>
           )}
           <span className="dish-unit">{unit}</span>
         </label>

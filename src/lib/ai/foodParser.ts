@@ -21,6 +21,7 @@ export const llmItemSchema = z.object({
   totalProteinG: z.number().min(0),
   totalCarbsG: z.number().min(0),
   totalFatG: z.number().min(0),
+  totalFiberG: z.number().min(0).default(0).optional(),
   confidence: z.number(),
   assumptions: z.string().optional().nullable(),
 });
@@ -46,6 +47,7 @@ export function normalizeLlmItems(items: LlmParseResult["items"]): ParsedItem[] 
       proteinG: round1(i.totalProteinG * f),
       carbsG: round1(i.totalCarbsG * f),
       fatG: round1(i.totalFatG * f),
+      fiberG: round1((i.totalFiberG ?? 0) * f),
       confidence: coerceConfidence(i.confidence),
       assumptions: i.assumptions ?? null,
     };

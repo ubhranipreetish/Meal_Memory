@@ -11,6 +11,7 @@ const editSchema = z.object({
   proteinG: z.coerce.number().min(0),
   carbsG: z.coerce.number().min(0),
   fatG: z.coerce.number().min(0),
+  fiberG: z.coerce.number().min(0).optional(),
 });
 
 export async function updateFoodAction(raw: unknown): Promise<{ ok: boolean; error?: string }> {

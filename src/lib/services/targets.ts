@@ -41,8 +41,9 @@ export interface Targets {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   waterMl: number;
-  steps: number;
+  steps?: number;
 }
 
 const ACTIVITY_MULTIPLIER: Record<ActivityLevel, number> = {
@@ -120,6 +121,8 @@ export function calcTargets(input: TargetInputs): Targets {
   const fatG = round((GOAL_FAT_FRACTION[input.goal] * kcal) / 9);
   // Carbs fill the remaining calories after protein (4 kcal/g) and fat (9 kcal/g).
   const carbsG = Math.max(0, round((kcal - proteinG * 4 - fatG * 9) / 4));
+  // Fiber: ~14g per 1000 kcal intake (standard guideline), min 25g.
+  const fiberG = Math.max(25, round((kcal / 1000) * 14));
 
   return {
     bmr: round(bmr),
@@ -128,6 +131,7 @@ export function calcTargets(input: TargetInputs): Targets {
     proteinG,
     carbsG,
     fatG,
+    fiberG,
     waterMl: round10(WATER_ML_PER_KG * input.weightKg),
     steps: GOAL_STEPS[input.goal],
   };

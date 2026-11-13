@@ -124,7 +124,7 @@ async function lookupAliases(
 const num = (v: string | null) => (v == null ? 0 : Number(v));
 
 function memoryToPerUnit(m: MemoryRow) {
-  return { kcal: num(m.kcal), proteinG: num(m.proteinG), carbsG: num(m.carbsG), fatG: num(m.fatG) };
+  return { kcal: num(m.kcal), proteinG: num(m.proteinG), carbsG: num(m.carbsG), fatG: num(m.fatG), fiberG: num(m.fiberG) };
 }
 
 /**
@@ -214,7 +214,7 @@ export async function resolveParsedItems(
   return Promise.all(
     parsedItems.map(async (i) => {
       const m = hits.get(i.name) ?? (await fuzzyLookup(userId, i.name));
-      const estimate = { kcal: i.kcal, proteinG: i.proteinG, carbsG: i.carbsG, fatG: i.fatG };
+      const estimate = { kcal: i.kcal, proteinG: i.proteinG, carbsG: i.carbsG, fatG: i.fatG, fiberG: i.fiberG ?? 0 };
       if (m) {
         const memoryQty = Number(m.servingQty) || servingSize(m.servingUnit);
         // Same kind of unit → trust the user's confirmed memory values.
@@ -293,6 +293,7 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
                 proteinG: String(item.perUnit.proteinG),
                 carbsG: String(item.perUnit.carbsG),
                 fatG: String(item.perUnit.fatG),
+                fiberG: String(item.perUnit.fiberG ?? 0),
                 source: "user_entered",
                 confidence: "1",
               }
@@ -326,6 +327,7 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
             proteinG: String(item.perUnit.proteinG),
             carbsG: String(item.perUnit.carbsG),
             fatG: String(item.perUnit.fatG),
+            fiberG: String(item.perUnit.fiberG ?? 0),
             source: item.confidence != null ? "llm_estimate" : "user_entered",
             confidence: item.confidence != null ? String(item.confidence) : null,
             assumptions: item.assumptions ?? null,
@@ -378,6 +380,7 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
           proteinG: String(t.proteinG),
           carbsG: String(t.carbsG),
           fatG: String(t.fatG),
+          fiberG: String(t.fiberG ?? 0),
         });
       }
     }
@@ -416,6 +419,7 @@ export async function getTodayMealTotals(userId: string, now = new Date()) {
       proteinG: sql<number>`coalesce(sum(${schema.mealLogItems.proteinG}), 0)::float`,
       carbsG: sql<number>`coalesce(sum(${schema.mealLogItems.carbsG}), 0)::float`,
       fatG: sql<number>`coalesce(sum(${schema.mealLogItems.fatG}), 0)::float`,
+      fiberG: sql<number>`coalesce(sum(${schema.mealLogItems.fiberG}), 0)::float`,
     })
     .from(schema.mealLogItems)
     .innerJoin(schema.mealLogs, eq(schema.mealLogItems.mealLogId, schema.mealLogs.id))
@@ -432,6 +436,7 @@ export async function getTodayMealTotals(userId: string, now = new Date()) {
     proteinG: Math.round(meals.proteinG),
     carbsG: Math.round(meals.carbsG),
     fatG: Math.round(meals.fatG),
+    fiberG: Math.round(meals.fiberG),
   };
 }
 

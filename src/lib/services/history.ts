@@ -252,6 +252,7 @@ export async function getFood(userId: string, foodId: string) {
     proteinG: num(m.proteinG),
     carbsG: num(m.carbsG),
     fatG: num(m.fatG),
+    fiberG: num(m.fiberG),
     source: m.source,
     confidence: m.confidence ? Number(m.confidence) : null,
     assumptions: m.assumptions,
@@ -266,7 +267,7 @@ export async function getFood(userId: string, foodId: string) {
 export async function updateFoodNutrition(
   userId: string,
   foodId: string,
-  values: { kcal: number; proteinG: number; carbsG: number; fatG: number },
+  values: { kcal: number; proteinG: number; carbsG: number; fatG: number; fiberG?: number },
 ) {
   const db = getDb();
   await db
@@ -276,6 +277,7 @@ export async function updateFoodNutrition(
       proteinG: String(values.proteinG),
       carbsG: String(values.carbsG),
       fatG: String(values.fatG),
+      ...(values.fiberG !== undefined ? { fiberG: String(values.fiberG) } : {}),
       source: "user_entered",
       confidence: "1",
       updatedAt: new Date(),

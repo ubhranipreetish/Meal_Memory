@@ -47,6 +47,7 @@ describe("calcTargets — 3 personas", () => {
     expect(t.fatG).toBe(84); // 25% of 3030 / 9
     expect(t.carbsG).toBe(409); // remainder
     expect(t.waterMl).toBe(2800);
+    expect(t.fiberG).toBe(42);
     expect(t.steps).toBe(8000);
   });
 
@@ -67,6 +68,7 @@ describe("calcTargets — 3 personas", () => {
     expect(t.fatG).toBe(41);
     expect(t.carbsG).toBe(141);
     expect(t.waterMl).toBe(2100);
+    expect(t.fiberG).toBe(25);
     expect(t.steps).toBe(10000);
   });
 
@@ -87,6 +89,7 @@ describe("calcTargets — 3 personas", () => {
     expect(t.fatG).toBe(60);
     expect(t.carbsG).toBe(225);
     expect(t.waterMl).toBe(3150);
+    expect(t.fiberG).toBe(30);
     expect(t.steps).toBe(9000);
   });
 });

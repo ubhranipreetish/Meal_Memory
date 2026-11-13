@@ -14,6 +14,7 @@ interface Food {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG?: number;
   isFavorite: boolean;
 }
 
@@ -24,6 +25,7 @@ export function FoodEditor({ food }: { food: Food }) {
     proteinG: String(food.proteinG),
     carbsG: String(food.carbsG),
     fatG: String(food.fatG),
+    fiberG: String(food.fiberG ?? 0),
   });
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +35,8 @@ export function FoodEditor({ food }: { food: Food }) {
     Number(v.kcal) !== food.kcal ||
     Number(v.proteinG) !== food.proteinG ||
     Number(v.carbsG) !== food.carbsG ||
-    Number(v.fatG) !== food.fatG;
+    Number(v.fatG) !== food.fatG ||
+    Number(v.fiberG) !== (food.fiberG ?? 0);
 
   function save() {
     setError(null);
@@ -79,6 +82,7 @@ export function FoodEditor({ food }: { food: Food }) {
           ["proteinG", "Protein · g"],
           ["carbsG", "Carbs · g"],
           ["fatG", "Fat · g"],
+          ["fiberG", "Fibre · g"],
         ] as const).map(([k, label]) => (
           <label key={k} className="small muted">
             {label}

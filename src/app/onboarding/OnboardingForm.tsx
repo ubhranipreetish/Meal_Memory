@@ -17,6 +17,26 @@ import {
 } from "@/types/profile";
 import { saveProfile } from "./actions";
 
+export interface InitialProfileData {
+  name?: string | null;
+  dob?: string | null;
+  gender?: string | null;
+  heightCm?: string | null;
+  currentWeightKg?: string | null;
+  goal?: string | null;
+  activityLevel?: string | null;
+  dietType?: string | null;
+  targets?: {
+    kcal?: number;
+    proteinG?: number;
+    carbsG?: number;
+    fatG?: number;
+    fiberG?: number;
+    waterMl?: number;
+    steps?: number;
+  } | null;
+}
+
 type Form = {
   name: string;
   age: string;
@@ -28,26 +48,55 @@ type Form = {
   dietType: string;
 };
 
-const initial: Form = {
-  name: "",
-  age: "",
-  gender: "male",
-  heightCm: "",
-  weightKg: "",
-  goal: "build_muscle",
-  activityLevel: "moderate",
-  dietType: "",
-};
+type TargetKeys = "kcal" | "proteinG" | "carbsG" | "fatG" | "fiberG" | "waterMl" | "steps";
 
 const basicsSchema = onboardingSchema.pick({ name: true, age: true, gender: true, heightCm: true, weightKg: true });
 const STEPS = ["About you", "Goals & diet", "Your daily targets"];
 
-export function OnboardingForm({ previewOnly = false, fromSettings = false }: { previewOnly?: boolean; fromSettings?: boolean }) {
+export function OnboardingForm({
+  previewOnly = false,
+  fromSettings = false,
+  initialProfile,
+}: {
+  previewOnly?: boolean;
+  fromSettings?: boolean;
+  initialProfile?: InitialProfileData | null;
+}) {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<Form>(initial);
+
+  const initialAge = initialProfile?.dob
+    ? String(new Date().getFullYear() - new Date(initialProfile.dob).getFullYear())
+    : "";
+
+  const [form, setForm] = useState<Form>(() => ({
+    name: initialProfile?.name ?? "",
+    age: initialAge,
+    gender: (initialProfile?.gender as Form["gender"]) ?? "male",
+    heightCm: initialProfile?.heightCm ? String(Math.round(Number(initialProfile.heightCm))) : "",
+    weightKg: initialProfile?.currentWeightKg ? String(Math.round(Number(initialProfile.currentWeightKg))) : "",
+    goal: (initialProfile?.goal as Form["goal"]) ?? "build_muscle",
+    activityLevel: (initialProfile?.activityLevel as Form["activityLevel"]) ?? "moderate",
+    dietType: initialProfile?.dietType ?? "",
+  }));
+
+  const [customTargets, setCustomTargets] = useState<Partial<Record<TargetKeys, string>>>(() => {
+    if (initialProfile?.targets) {
+      return {
+        kcal: initialProfile.targets.kcal != null ? String(initialProfile.targets.kcal) : undefined,
+        proteinG: initialProfile.targets.proteinG != null ? String(initialProfile.targets.proteinG) : undefined,
+        carbsG: initialProfile.targets.carbsG != null ? String(initialProfile.targets.carbsG) : undefined,
+        fatG: initialProfile.targets.fatG != null ? String(initialProfile.targets.fatG) : undefined,
+        fiberG: initialProfile.targets.fiberG != null ? String(initialProfile.targets.fiberG) : undefined,
+        waterMl: initialProfile.targets.waterMl != null ? String(initialProfile.targets.waterMl) : undefined,
+        steps: initialProfile.targets.steps != null ? String(initialProfile.targets.steps) : undefined,
+      };
+    }
+    return {};
+  });
+
   // once the user picks a goal themselves we stop auto-suggesting
-  const [goalTouched, setGoalTouched] = useState(false);
+  const [goalTouched, setGoalTouched] = useState(() => Boolean(initialProfile?.goal));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -69,6 +118,16 @@ export function OnboardingForm({ previewOnly = false, fromSettings = false }: { 
     if (!age || !heightCm || !weightKg) return null;
     return suggestGoal({ gender: form.gender, age, heightCm, weightKg });
   }, [form.age, form.gender, form.heightCm, form.weightKg]);
+
+  const hasCustomTargets = useMemo(() => {
+    return Object.keys(customTargets).some(
+      (k) => customTargets[k as TargetKeys] !== undefined && customTargets[k as TargetKeys] !== ""
+    );
+  }, [customTargets]);
+
+  function updateCustomTarget(key: TargetKeys, val: string) {
+    setCustomTargets((prev) => ({ ...prev, [key]: val }));
+  }
 
   /** Can the user leave the current step? (required fields per step) */
   const canAdvance =
@@ -99,6 +158,19 @@ export function OnboardingForm({ previewOnly = false, fromSettings = false }: { 
 
   function submit() {
     setError(null);
+
+    const targetPayload = preview
+      ? {
+          kcal: customTargets.kcal !== undefined && customTargets.kcal !== "" ? Number(customTargets.kcal) : preview.kcal,
+          proteinG: customTargets.proteinG !== undefined && customTargets.proteinG !== "" ? Number(customTargets.proteinG) : preview.proteinG,
+          carbsG: customTargets.carbsG !== undefined && customTargets.carbsG !== "" ? Number(customTargets.carbsG) : preview.carbsG,
+          fatG: customTargets.fatG !== undefined && customTargets.fatG !== "" ? Number(customTargets.fatG) : preview.fatG,
+          fiberG: customTargets.fiberG !== undefined && customTargets.fiberG !== "" ? Number(customTargets.fiberG) : preview.fiberG,
+          waterMl: customTargets.waterMl !== undefined && customTargets.waterMl !== "" ? Number(customTargets.waterMl) : preview.waterMl,
+          steps: customTargets.steps !== undefined && customTargets.steps !== "" ? Number(customTargets.steps) : preview.steps,
+        }
+      : undefined;
+
     const payload = {
       name: form.name.trim(),
       age: form.age,
@@ -108,7 +180,9 @@ export function OnboardingForm({ previewOnly = false, fromSettings = false }: { 
       goal: form.goal,
       activityLevel: form.activityLevel,
       dietType: form.dietType || undefined,
+      customTargets: hasCustomTargets ? targetPayload : undefined,
     };
+
     const parsed = onboardingSchema.safeParse(payload);
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Please check your entries");
@@ -205,14 +279,144 @@ export function OnboardingForm({ previewOnly = false, fromSettings = false }: { 
 
       {step === 2 && (
         <section className="section spaced">
-          <p className="small muted">Based on your details, here are your daily targets. You can tweak everything later in Profile.</p>
+          <div className="row between items-center">
+            <p className="small muted">
+              {hasCustomTargets
+                ? "Custom targets active. You can edit any value or reset."
+                : "Calculated from your age, weight, and goal. You can edit any target below:"}
+            </p>
+            {hasCustomTargets && (
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => setCustomTargets({})}
+                style={{ minHeight: 32, padding: "4px 10px", fontSize: "13px" }}
+              >
+                ↺ Reset to calculated
+              </button>
+            )}
+          </div>
+
+          <Field label="Goal">
+            <select
+              className={inputCls}
+              value={form.goal}
+              onChange={(e) => {
+                setGoalTouched(true);
+                set("goal", e.target.value as Form["goal"]);
+              }}
+            >
+              {GOALS.map((g) => (
+                <option key={g} value={g}>
+                  {GOAL_LABELS[g]}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           {preview ? (
             <div className="grid2">
-              <Stat label="Calories" value={`${preview.kcal} kcal`} />
-              <Stat label="Protein" value={`${preview.proteinG} g`} />
-              <Stat label="Carbs" value={`${preview.carbsG} g`} />
-              <Stat label="Fat" value={`${preview.fatG} g`} />
-              <Stat label="Water" value={`${preview.waterMl} ml`} />
+              <div className="card">
+                <div className="row between">
+                  <label className="small muted" htmlFor="ob-kcal">
+                    Calories
+                  </label>
+                  <span className="small muted">kcal</span>
+                </div>
+                <input
+                  id="ob-kcal"
+                  type="number"
+                  className={inputCls}
+                  value={customTargets.kcal !== undefined ? customTargets.kcal : preview.kcal}
+                  onChange={(e) => updateCustomTarget("kcal", e.target.value)}
+                  placeholder={String(preview.kcal)}
+                />
+              </div>
+
+              <div className="card">
+                <div className="row between">
+                  <label className="small muted" htmlFor="ob-protein">
+                    Protein
+                  </label>
+                  <span className="small muted">g</span>
+                </div>
+                <input
+                  id="ob-protein"
+                  type="number"
+                  className={inputCls}
+                  value={customTargets.proteinG !== undefined ? customTargets.proteinG : preview.proteinG}
+                  onChange={(e) => updateCustomTarget("proteinG", e.target.value)}
+                  placeholder={String(preview.proteinG)}
+                />
+              </div>
+
+              <div className="card">
+                <div className="row between">
+                  <label className="small muted" htmlFor="ob-carbs">
+                    Carbs
+                  </label>
+                  <span className="small muted">g</span>
+                </div>
+                <input
+                  id="ob-carbs"
+                  type="number"
+                  className={inputCls}
+                  value={customTargets.carbsG !== undefined ? customTargets.carbsG : preview.carbsG}
+                  onChange={(e) => updateCustomTarget("carbsG", e.target.value)}
+                  placeholder={String(preview.carbsG)}
+                />
+              </div>
+
+              <div className="card">
+                <div className="row between">
+                  <label className="small muted" htmlFor="ob-fat">
+                    Fat
+                  </label>
+                  <span className="small muted">g</span>
+                </div>
+                <input
+                  id="ob-fat"
+                  type="number"
+                  className={inputCls}
+                  value={customTargets.fatG !== undefined ? customTargets.fatG : preview.fatG}
+                  onChange={(e) => updateCustomTarget("fatG", e.target.value)}
+                  placeholder={String(preview.fatG)}
+                />
+              </div>
+
+              <div className="card">
+                <div className="row between">
+                  <label className="small muted" htmlFor="ob-water">
+                    Water
+                  </label>
+                  <span className="small muted">ml</span>
+                </div>
+                <input
+                  id="ob-water"
+                  type="number"
+                  className={inputCls}
+                  value={customTargets.waterMl !== undefined ? customTargets.waterMl : preview.waterMl}
+                  onChange={(e) => updateCustomTarget("waterMl", e.target.value)}
+                  placeholder={String(preview.waterMl)}
+                />
+              </div>
+
+              <div className="card">
+                <div className="row between">
+                  <label className="small muted" htmlFor="ob-fiber">
+                    Fibre
+                  </label>
+                  <span className="small muted">g</span>
+                </div>
+                <input
+                  id="ob-fiber"
+                  type="number"
+                  className={inputCls}
+                  value={customTargets.fiberG !== undefined ? customTargets.fiberG : preview.fiberG}
+                  onChange={(e) => updateCustomTarget("fiberG", e.target.value)}
+                  placeholder={String(preview.fiberG)}
+                />
+              </div>
             </div>
           ) : (
             <p className="small danger">Please fill in age, height and weight in step 1.</p>
@@ -250,14 +454,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {label}
       {children}
     </label>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="card">
-      <p className="small muted">{label}</p>
-      <p className="metric">{value}</p>
-    </div>
   );
 }

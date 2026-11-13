@@ -33,11 +33,12 @@ Pick the unit a person would naturally COUNT for that food:
 - Gravy dishes are the ONE case where both apply: use "piece" when the user counts solids ("2 pieces of butter chicken", "4 chicken tikka") and "bowl"/"plate" when they describe a serving. A "piece" of a meat curry is one chunk of meat with its gravy (~50-60 g) — MUCH smaller than a bowl.
 - "half a bowl" => qty 0.5, unit "bowl". "two aloo parathas" => qty 2, unit "piece".
 
-Nutrition — totalKcal / totalProteinG / totalCarbsG / totalFatG are for the WHOLE quantity the user ate (qty × unit), NOT per unit:
+Nutrition — totalKcal / totalProteinG / totalCarbsG / totalFatG / totalFiberG are for the WHOLE quantity the user ate (qty × unit), NOT per unit:
 - "2 boiled eggs" => qty 2, totalKcal ≈ 156, totalProteinG ≈ 12. "250 ml milk" => qty 250, unit ml, totalKcal ≈ 150. "100 g paneer" => qty 100, unit g, totalKcal ≈ 265. "half bowl dal" => qty 0.5, totalKcal ≈ 75.
 - COUNT EVERY COMPONENT THE USER NAMES. If they say "with milk", "with butter", "with cheese", "with ghee", "with sugar", "with sambar", that component's calories and protein are part of the item. "1 cup coffee with milk" is an Indian milk coffee ≈ 90-120 kcal and 3-5 g protein (roughly half a cup of toned milk + sugar) — NOT a 5 kcal black coffee. Same for "chai" (≈ 90-110 kcal, 3-4 g protein). Only assume black/no-sugar when the user says so.
 - Understand Indian, homemade, restaurant and international food. Assume typical homemade Indian preparation unless stated otherwise.
 - Estimate realistically for homemade portions (1 aloo paratha with ghee ≈ 250-320 kcal; 1 bowl dal ≈ 120-180 kcal; 1 glass full-fat milk ≈ 150 kcal; 1 boiled egg ≈ 78 kcal, 6 g protein; chicken breast ≈ 165 kcal / 31 g protein per 100 g; 1 piece of butter chicken ≈ 90-120 kcal; 1 slice cheese pizza ≈ 280 kcal).
+- Fibre (totalFiberG): MUST always provide a realistic dietary fibre estimate for the food. Plant foods (vegetables, fruits, legumes, whole grains, nuts, seeds) are rich in fibre; animal products (chicken, meat, eggs, fish, dairy), oils, and sugars have 0g fibre. Examples: 100g almonds ≈ 12g fibre; 1 medium apple ≈ 4.4g fibre; 1 medium banana ≈ 3g fibre; 1 bowl dal ≈ 7g fibre; 1 roti (whole wheat) ≈ 2g fibre; 1 bowl oats ≈ 4g fibre; 1 bowl cooked rice ≈ 0.6g fibre; 100g chicken breast / 2 eggs = 0g fibre.
 - "confidence" in [0,1]: how sure you are of the nutrition estimate for this user's likely portion.
 - "assumptions" briefly states what you assumed (size, oil/ghee, milk, preparation). Keep under 15 words.
 
@@ -67,10 +68,11 @@ export const FOOD_PARSE_SCHEMA = {
           totalProteinG: { type: "number" },
           totalCarbsG: { type: "number" },
           totalFatG: { type: "number" },
+          totalFiberG: { type: "number" },
           confidence: { type: "number" },
           assumptions: { type: "string", nullable: true },
         },
-        required: ["name", "qty", "unit", "totalKcal", "totalProteinG", "totalCarbsG", "totalFatG", "confidence"],
+        required: ["name", "qty", "unit", "totalKcal", "totalProteinG", "totalCarbsG", "totalFatG", "totalFiberG", "confidence"],
       },
     },
     waterMl: { type: "number", nullable: true },

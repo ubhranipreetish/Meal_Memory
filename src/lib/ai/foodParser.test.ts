@@ -21,6 +21,10 @@ describe("normalizeLlmItems (totals → per serving)", () => {
     const [x] = normalizeLlmItems([{ ...base, name: "X", qty: 1, unit: "handful", totalKcal: 100, totalProteinG: 1, totalCarbsG: 1, totalFatG: 1 }]);
     expect(x.unit).toBe("serving");
   });
+  it("normalizes totalFiberG to per serving", () => {
+    const [apple] = normalizeLlmItems([{ ...base, name: "Apple", qty: 2, unit: "piece", totalKcal: 190, totalProteinG: 1, totalCarbsG: 50, totalFatG: 0.6, totalFiberG: 8.8 }]);
+    expect(apple).toMatchObject({ fiberG: 4.4 });
+  });
 });
 
 describe("retryAfterMs", () => {

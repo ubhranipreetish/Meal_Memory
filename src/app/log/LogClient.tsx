@@ -645,7 +645,7 @@ function ReviewCard({
         unit: "piece",
         perQty: 1,
         status: "new",
-        perUnit: { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0 },
+        perUnit: { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0 },
         saveToMemory: true,
         updateMemory: false,
         _edited: true,
@@ -684,9 +684,15 @@ function ReviewCard({
       items.reduce(
         (acc, it) => {
           const t = itemTotals(it);
-          return { kcal: acc.kcal + t.kcal, proteinG: acc.proteinG + t.proteinG, carbsG: acc.carbsG + t.carbsG, fatG: acc.fatG + t.fatG };
+          return {
+            kcal: acc.kcal + t.kcal,
+            proteinG: acc.proteinG + t.proteinG,
+            carbsG: acc.carbsG + t.carbsG,
+            fatG: acc.fatG + t.fatG,
+            fiberG: acc.fiberG + (t.fiberG ?? 0),
+          };
         },
-        { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0 },
+        { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0 },
       ),
     [items],
   );
@@ -769,7 +775,7 @@ function ReviewCard({
             {item.estimateFailed && <p role="status" className="small danger mt-2">Couldn&rsquo;t update nutrition. Check these values before saving.</p>}
 
             <p className="small mt-2">
-              <span className="muted">Dish total</span> <strong>{fmt(t.kcal)} kcal</strong> · {fmt(t.proteinG)}g P · {fmt(t.carbsG)}g C · {fmt(t.fatG)}g F
+              <span className="muted">Dish total</span> <strong>{fmt(t.kcal)} kcal</strong> · {fmt(t.proteinG)}g P · {fmt(t.carbsG)}g C · {fmt(t.fatG)}g F · {fmt(t.fiberG ?? 0)}g Fibre
             </p>
             <p className="small muted mt-1">
               {item.status === "known" && !item.assumptions ? "From your foods" : item.confidence != null ? "Estimated nutrition" : "Your nutrition values"}
@@ -846,7 +852,7 @@ function ReviewCard({
           </p>
         </div>
         <span className="green small">
-          {fmt(Math.round(totals.proteinG))}g protein
+          {fmt(Math.round(totals.proteinG))}g P · {fmt(Math.round(totals.fiberG))}g fibre
           {newCount > 0 && items.some((i) => i.status === "new" && i.saveToMemory)
             ? ` · saving ${items.filter((i) => i.status === "new" && i.saveToMemory).length} new`
             : ""}
@@ -869,7 +875,7 @@ function ReviewCard({
 
 /** Manual fallback — AI down must never block logging (RULES.md #13). */
 function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: MealType; onDone: () => void }) {
-  const [f, setF] = useState({ name: "", qty: "1", unit: "piece", kcal: "", proteinG: "0", carbsG: "0", fatG: "0", save: true });
+  const [f, setF] = useState({ name: "", qty: "1", unit: "piece", kcal: "", proteinG: "0", carbsG: "0", fatG: "0", fiberG: "0", save: true });
   const [err, setErr] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -893,7 +899,7 @@ function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: Meal
             unit: f.unit || "piece",
             perQty: servingSize(f.unit || "piece"),
             status: "new",
-            perUnit: { kcal, proteinG: Number(f.proteinG) || 0, carbsG: Number(f.carbsG) || 0, fatG: Number(f.fatG) || 0 },
+            perUnit: { kcal, proteinG: Number(f.proteinG) || 0, carbsG: Number(f.carbsG) || 0, fatG: Number(f.fatG) || 0, fiberG: Number(f.fiberG) || 0 },
             saveToMemory: f.save,
           },
         ],
@@ -933,6 +939,7 @@ function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: Meal
           ["proteinG", "Protein · g", f.proteinG],
           ["carbsG", "Carbs · g", f.carbsG],
           ["fatG", "Fat · g", f.fatG],
+          ["fiberG", "Fibre · g", f.fiberG],
         ] as const).map(([key, label, value]) => (
           <label className="small muted" key={key}>
             {label}

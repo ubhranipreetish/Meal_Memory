@@ -135,6 +135,7 @@ export const mealLogItems = pgTable("meal_log_items", {
   proteinG: numeric("protein_g"),
   carbsG: numeric("carbs_g"),
   fatG: numeric("fat_g"),
+  fiberG: numeric("fiber_g"),
   ...timestamps(),
 }, (t) => [index("meal_log_items_log_idx").on(t.mealLogId)]);
 
