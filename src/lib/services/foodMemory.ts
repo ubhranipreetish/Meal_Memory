@@ -20,6 +20,7 @@ import {
   quickParseWater,
 } from "@/lib/services/quickParse";
 import {
+  MEAL_TYPES,
   itemTotals,
   servingSize,
   type ConfirmLogInput,
@@ -460,7 +461,9 @@ export async function getTodayTotals(userId: string, now = new Date()) {
   return { ...meals, waterMl: water.ml };
 }
 
-/** Meal logs for the selected local day, newest first. */
+const mealSlotOrder = new Map<string | null, number>(MEAL_TYPES.map((slot, index) => [slot, index]));
+
+/** Meal logs for the selected local day in slot order, earliest first within each slot. */
 export async function getDailyFeed(userId: string, date: Date) {
   const db = getDb();
   const { key, start, end } = dayBounds(date);
@@ -475,7 +478,7 @@ export async function getDailyFeed(userId: string, date: Date) {
         sql`${schema.mealLogs.loggedAt} < ${end.toISOString()}`,
       ),
     )
-    .orderBy(sql`${schema.mealLogs.loggedAt} desc`);
+    .orderBy(schema.mealLogs.loggedAt, schema.mealLogs.createdAt, schema.mealLogs.id);
 
   if (logs.length === 0) return [];
   const items = await db
@@ -486,6 +489,12 @@ export async function getDailyFeed(userId: string, date: Date) {
     .from(schema.mealLogItems)
     .leftJoin(schema.foodMemory, eq(schema.mealLogItems.foodMemoryId, schema.foodMemory.id))
     .where(inArray(schema.mealLogItems.mealLogId, logs.map((l) => l.id)));
+
+  // Stable sorting keeps the chronological order of entries in the same slot.
+  logs.sort((a, b) =>
+    (mealSlotOrder.get(a.mealType) ?? MEAL_TYPES.length) -
+    (mealSlotOrder.get(b.mealType) ?? MEAL_TYPES.length),
+  );
 
   return logs.map((l) => ({
     id: l.id,
