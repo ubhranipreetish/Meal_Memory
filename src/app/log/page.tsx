@@ -1,30 +1,34 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getTodayFeed, getTodayTotals, inferMealType } from "@/lib/services/foodMemory";
+import { getDailyFeed, getTodayTotals, inferMealType } from "@/lib/services/foodMemory";
 import { listSavedFoods } from "@/lib/services/history";
 import { AppShell, todayLabel } from "@/components/AppShell";
-import { formatAppTime } from "@/lib/time";
+import { dateKey, dayBounds, formatAppTime } from "@/lib/time";
 import { LogClient } from "./LogClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function LogPage() {
+export default async function LogPage({ searchParams }: { searchParams: Promise<{ day?: string | string[] }> }) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const yesterday = (await searchParams).day === "yesterday";
+  const now = new Date();
+  const date = yesterday ? new Date(dayBounds(now).start.getTime() - 1) : now;
+  const selectedDate = dateKey(date);
   const [feed, totals, savedFoods] = await Promise.all([
-    getTodayFeed(user.id),
-    getTodayTotals(user.id),
+    getDailyFeed(user.id, date),
+    getTodayTotals(user.id, date),
     listSavedFoods(user.id),
   ]);
 
   return (
     <AppShell
       active="/log"
-      eyebrow={todayLabel()}
+      eyebrow={todayLabel(date)}
       aside="Your food journal"
       title="Eat. Log. Carry on."
       subtitle={
@@ -34,9 +38,12 @@ export default async function LogPage() {
       }
     >
       <LogClient
-        feed={feed.map((f) => ({ ...f, loggedAt: f.loggedAt.toISOString(), timeLabel: formatAppTime(f.loggedAt) }))}
+        key={selectedDate}
+        date={selectedDate}
+        yesterday={yesterday}
+        feed={feed.map((f) => ({ ...f, loggedAt: f.loggedAt.toISOString(), timeLabel: f.backdated ? null : formatAppTime(f.loggedAt) }))}
         savedFoods={savedFoods}
-        suggestedMealType={inferMealType()}
+        suggestedMealType={yesterday ? "dinner" : inferMealType(now)}
       />
     </AppShell>
   );

@@ -120,7 +120,10 @@ export default async function WeekPage({ searchParams }: { searchParams: Promise
             {day.meals.length === 0 && <p className="small muted">Nothing was logged for this day.</p>}
             {day.meals.map((meal) => (
               <article className="entry" key={meal.id}>
-                <p className="eyebrow muted">{mealLabel(meal.mealType)} · {formatAppTime(meal.loggedAt)}</p>
+                <p className="eyebrow muted">
+                  {mealLabel(meal.mealType)}
+                  {dateKey(meal.createdAt) === dateKey(meal.loggedAt) && ` · ${formatAppTime(meal.loggedAt)}`}
+                </p>
                 {meal.items.length ? (
                   <ul className="mt-2">
                     {meal.items.map((item) => (

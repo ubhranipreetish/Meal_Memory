@@ -6,9 +6,11 @@ import { quickLogAction } from "@/app/history/actions";
 import { SavedFoodsList, type SavedFood } from "@/components/SavedFoodsList";
 import { MEAL_LABELS, type MealType } from "@/types/food";
 
-export function SavedFoodPicker({ foods, meal, disabled, onLogged }: {
+export function SavedFoodPicker({ foods, meal, date, yesterday, disabled, onLogged }: {
   foods: SavedFood[];
   meal: MealType;
+  date: string;
+  yesterday: boolean;
   disabled: boolean;
   onLogged: (name: string) => void;
 }) {
@@ -23,7 +25,7 @@ export function SavedFoodPicker({ foods, meal, disabled, onLogged }: {
     const food = selected;
     setError(null);
     startTransition(async () => {
-      const result = await quickLogAction(food.id, meal);
+      const result = await quickLogAction(food.id, meal, date);
       if (!result.ok) {
         setError(result.error ?? "Couldn’t log this food.");
         return;
@@ -54,7 +56,7 @@ export function SavedFoodPicker({ foods, meal, disabled, onLogged }: {
         </div>
         {selected ? (
           <div className="mt-3">
-            <p>Add <strong>{selected.name}</strong> to <strong>{MEAL_LABELS[meal].toLowerCase()}</strong>?</p>
+            <p>Add <strong>{selected.name}</strong> to <strong>{MEAL_LABELS[meal].toLowerCase()}</strong>{yesterday ? " for yesterday" : ""}?</p>
             <p className="small muted mt-2">{selected.servingQty} {selected.unit} · {selected.kcal} kcal</p>
             {error && <p className="small danger mt-2" role="alert">{error}</p>}
             <div className="row mt-4">

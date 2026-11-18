@@ -6,6 +6,7 @@
 import { normalizeAlooParatha } from "./quickParse";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { mealLogDate } from "@/lib/time";
 import type { MealType } from "@/types/food";
 
 const num = (v: string | null) => (v == null ? 0 : Number(v));
@@ -30,7 +31,7 @@ async function readMealLogs(userId: string, filter: HistoryFilter & { start?: Da
   const q = filter.q?.trim() ? `%${filter.q.trim()}%` : null;
   const rows = (await db.execute(sql`
     with logs as (
-      select ml.id, ml.logged_at, ml.meal_type, ml.raw_input
+      select ml.id, ml.logged_at, ml.created_at, ml.meal_type, ml.raw_input
       from meal_logs ml
       where ml.user_id = ${userId}
         ${filter.start ? sql`and ml.logged_at >= ${filter.start.toISOString()}` : sql``}
@@ -45,7 +46,7 @@ async function readMealLogs(userId: string, filter: HistoryFilter & { start?: Da
       order by ml.logged_at desc
       ${filter.limit !== undefined ? sql`limit ${filter.limit}` : sql``}
     )
-    select l.id as log_id, l.logged_at, l.meal_type, l.raw_input,
+    select l.id as log_id, l.logged_at, l.created_at, l.meal_type, l.raw_input,
            i.id as item_id, i.food_memory_id, i.qty, i.unit, i.kcal, i.protein_g,
            coalesce(i.name, fm.canonical_name) as canonical_name
     from logs l
@@ -59,6 +60,7 @@ async function readMealLogs(userId: string, filter: HistoryFilter & { start?: Da
     {
       id: string;
       loggedAt: Date;
+      createdAt: Date;
       mealType: string | null;
       rawInput: string;
       totalKcal: number;
@@ -72,6 +74,7 @@ async function readMealLogs(userId: string, filter: HistoryFilter & { start?: Da
       byLog.set(logId, {
         id: logId,
         loggedAt: new Date(String(r.logged_at)),
+        createdAt: new Date(String(r.created_at)),
         mealType: (r.meal_type as string | null) ?? null,
         rawInput: String(r.raw_input),
         totalKcal: 0,
@@ -133,77 +136,88 @@ export async function relogMeal(userId: string, mealLogId: string) {
   const db = getDb();
   const now = new Date();
 
-  const [orig] = await db
-    .select()
-    .from(schema.mealLogs)
-    .where(and(eq(schema.mealLogs.id, mealLogId), eq(schema.mealLogs.userId, userId)))
-    .limit(1);
-  if (!orig) throw new Error("Meal not found");
+  return db.transaction(async (tx) => {
+    const [orig] = await tx
+      .select()
+      .from(schema.mealLogs)
+      .where(and(eq(schema.mealLogs.id, mealLogId), eq(schema.mealLogs.userId, userId)))
+      .limit(1);
+    if (!orig) throw new Error("Meal not found");
 
-  const items = await db
-    .select()
-    .from(schema.mealLogItems)
-    .where(eq(schema.mealLogItems.mealLogId, mealLogId));
+    const items = await tx
+      .select({ item: schema.mealLogItems, foodName: schema.foodMemory.canonicalName })
+      .from(schema.mealLogItems)
+      .leftJoin(schema.foodMemory, eq(schema.mealLogItems.foodMemoryId, schema.foodMemory.id))
+      .where(eq(schema.mealLogItems.mealLogId, mealLogId))
+      .orderBy(schema.mealLogItems.foodMemoryId, schema.mealLogItems.id);
 
-  const [log] = await db
-    .insert(schema.mealLogs)
-    .values({
-      userId,
-      loggedAt: now,
-      mealType: orig.mealType,
-      rawInput: `${orig.rawInput} (re-logged)`,
-      inputMode: "quick_pick",
-    })
-    .returning({ id: schema.mealLogs.id });
+    const [log] = await tx
+      .insert(schema.mealLogs)
+      .values({
+        userId,
+        loggedAt: now,
+        mealType: orig.mealType,
+        rawInput: `${orig.rawInput} (re-logged)`,
+        inputMode: "quick_pick",
+      })
+      .returning({ id: schema.mealLogs.id });
 
-  for (const it of items) {
-    await db.insert(schema.mealLogItems).values({
-      userId,
-      mealLogId: log.id,
-      foodMemoryId: it.foodMemoryId,
-      name: it.name,
-      qty: it.qty,
-      unit: it.unit,
-      kcal: it.kcal,
-      proteinG: it.proteinG,
-      carbsG: it.carbsG,
-      fatG: it.fatG,
-    });
-    if (it.foodMemoryId) {
-      await db
-        .update(schema.foodMemory)
-        .set({ timesLogged: sql`${schema.foodMemory.timesLogged} + 1`, lastLoggedAt: now })
-        .where(eq(schema.foodMemory.id, it.foodMemoryId));
+    for (const { item, foodName } of items) {
+      let foodMemoryId = null;
+      if (item.foodMemoryId) {
+        const [memory] = await tx
+          .update(schema.foodMemory)
+          .set({ timesLogged: sql`${schema.foodMemory.timesLogged} + 1`, lastLoggedAt: now })
+          .where(and(eq(schema.foodMemory.id, item.foodMemoryId), eq(schema.foodMemory.userId, userId)))
+          .returning({ id: schema.foodMemory.id });
+        foodMemoryId = memory?.id ?? null;
+      }
+
+      const { name, qty, unit, kcal, proteinG, carbsG, fatG, fiberG } = item;
+      await tx.insert(schema.mealLogItems).values({
+        userId,
+        mealLogId: log.id,
+        foodMemoryId,
+        name: name ?? foodName,
+        qty,
+        unit,
+        kcal,
+        proteinG,
+        carbsG,
+        fatG,
+        fiberG,
+      });
     }
-  }
-  return { mealLogId: log.id };
+    return { mealLogId: log.id };
+  });
 }
 
 /**
  * Log a single known food right now (quick-pick chip → one tap).
  * Default qty is one serving of the food: 1 piece/bowl…, or 100 for g/ml foods.
  */
-export async function quickLogFood(userId: string, foodMemoryId: string, qty?: number, mealType?: MealType) {
+export async function quickLogFood(userId: string, foodMemoryId: string, qty?: number, mealType?: MealType, date?: string) {
   const db = getDb();
   const now = new Date();
-  const [m] = await db
-    .select()
-    .from(schema.foodMemory)
-    .where(and(eq(schema.foodMemory.id, foodMemoryId), eq(schema.foodMemory.userId, userId)))
-    .limit(1);
-  if (!m) throw new Error("Food not found");
-
-  const perQty = Number(m.servingQty) || 1;
-  const q = qty ?? perQty;
-  const f = q / perQty;
+  const loggedAt = mealLogDate(date, now);
   const { inferMealType } = await import("./foodMemory");
   return db.transaction(async (tx) => {
+    const [m] = await tx
+      .select()
+      .from(schema.foodMemory)
+      .where(and(eq(schema.foodMemory.id, foodMemoryId), eq(schema.foodMemory.userId, userId)))
+      .for("update");
+    if (!m) throw new Error("Food not found");
+
+    const perQty = Number(m.servingQty) || 1;
+    const q = qty ?? perQty;
+    const f = q / perQty;
     const [log] = await tx
       .insert(schema.mealLogs)
       .values({
         userId,
-        loggedAt: now,
-        mealType: mealType ?? inferMealType(now),
+        loggedAt,
+        mealType: mealType ?? inferMealType(loggedAt),
         rawInput: `${q} ${m.servingUnit} ${m.canonicalName}`,
         inputMode: "quick_pick",
       })
@@ -227,6 +241,21 @@ export async function quickLogFood(userId: string, foodMemoryId: string, qty?: n
       .where(eq(schema.foodMemory.id, m.id));
 
     return { mealLogId: log.id };
+  });
+}
+
+export async function deleteSavedFood(userId: string, foodId: string) {
+  await getDb().transaction(async (tx) => {
+    const ownedFood = and(eq(schema.foodMemory.id, foodId), eq(schema.foodMemory.userId, userId));
+    const [food] = await tx.select({ name: schema.foodMemory.canonicalName })
+      .from(schema.foodMemory).where(ownedFood).for("update");
+    if (!food) throw new Error("Saved food not found.");
+
+    // Detach historical entries and preserve the name on legacy rows.
+    await tx.update(schema.mealLogItems)
+      .set({ foodMemoryId: null, name: sql`coalesce(${schema.mealLogItems.name}, ${food.name})` })
+      .where(and(eq(schema.mealLogItems.foodMemoryId, foodId), eq(schema.mealLogItems.userId, userId)));
+    await tx.delete(schema.foodMemory).where(ownedFood);
   });
 }
 

@@ -1,17 +1,21 @@
 import { Mic, Camera, ArrowUpRight } from "lucide-react";
-import { AppShell, todayLabel } from "@/components/AppShell";
+import { AppShell } from "@/components/AppShell";
 
 export default function LogLoading() {
   return (
     <AppShell
       active="/log"
-      eyebrow={todayLabel()}
+      eyebrow={<span className="skeleton h-3 w-28" aria-hidden="true" />}
       aside="Your food journal"
       title="Eat. Log. Carry on."
       subtitle="A little less tracking. A little more living."
     >
       <div role="status" className="sr-only">
         Loading food journal...
+      </div>
+      <div className="section chips" aria-hidden="true">
+        <span className="skeleton h-9 w-16 rounded-full" />
+        <span className="skeleton h-9 w-24 rounded-full" />
       </div>
 
       {/* Meal slot chips */}

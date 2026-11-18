@@ -1,9 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { Star } from "lucide-react";
-import { toggleFavoriteAction, updateFoodAction } from "./actions";
+import { useRef, useState, useTransition } from "react";
+import { Star, Trash2 } from "lucide-react";
+import { deleteFoodAction, toggleFavoriteAction, updateFoodAction } from "./actions";
 
 interface Food {
   id: string;
@@ -20,6 +20,9 @@ interface Food {
 
 export function FoodEditor({ food }: { food: Food }) {
   const router = useRouter();
+  const deleteDialog = useRef<HTMLDialogElement>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, startDelete] = useTransition();
   const [v, setV] = useState({
     kcal: String(food.kcal),
     proteinG: String(food.proteinG),
@@ -65,6 +68,7 @@ export function FoodEditor({ food }: { food: Food }) {
           className="icon green"
           aria-label={`${food.isFavorite ? "Unfavourite" : "Favourite"} ${food.name}`}
           aria-pressed={food.isFavorite}
+          disabled={pending || deleting}
           onClick={() =>
             startTransition(async () => {
               await toggleFavoriteAction(food.id);
@@ -92,9 +96,30 @@ export function FoodEditor({ food }: { food: Food }) {
       </div>
 
       {error && <p className="small danger mt-2">{error}</p>}
-      <button className="primary mt-4" onClick={save} disabled={pending || !dirty} style={{ opacity: pending || !dirty ? 0.4 : 1 }}>
+      <button className="primary mt-4" onClick={save} disabled={pending || deleting || !dirty} style={{ opacity: pending || !dirty ? 0.4 : 1 }}>
         {saved ? "Saved ✓" : pending ? "Saving…" : "Save changes"}
       </button>
+      <button type="button" className="secondary danger mt-4" disabled={pending || deleting} onClick={() => {
+        setDeleteError(null);
+        deleteDialog.current?.showModal();
+      }}>
+        <Trash2 size={17} aria-hidden="true" /> Delete saved food
+      </button>
+      <dialog ref={deleteDialog} className="card food-dialog" aria-labelledby="delete-food-title" onCancel={(event) => {
+        if (deleting) event.preventDefault();
+      }}>
+        <h2 id="delete-food-title">Delete {food.name}?</h2>
+        <p className="muted mt-2">This removes it from your saved foods. Past meals keep their nutrition and food names.</p>
+        {deleteError && <p role="alert" className="small danger mt-2">{deleteError}</p>}
+        <div className="row mt-4 flex-wrap">
+          <button type="button" className="secondary" disabled={deleting} onClick={() => deleteDialog.current?.close()}>Cancel</button>
+          <button type="button" className="secondary danger" disabled={deleting} onClick={() => startDelete(async () => {
+            setDeleteError(null);
+            const result = await deleteFoodAction(food.id);
+            setDeleteError(result.error);
+          })}>{deleting ? "Deleting…" : "Delete saved food"}</button>
+        </div>
+      </dialog>
     </section>
   );
 }

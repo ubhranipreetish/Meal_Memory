@@ -28,11 +28,11 @@ export async function relogAction(mealLogId: string): Promise<{ ok: boolean; err
   }
 }
 
-export async function quickLogAction(foodMemoryId: string, mealType?: string): Promise<{ ok: boolean; error?: string }> {
+export async function quickLogAction(foodMemoryId: string, mealType?: string, date?: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const user = await requireUser();
     const slot = MEAL_TYPES.find((m) => m === mealType);
-    await quickLogFood(user.id, foodMemoryId, undefined, slot);
+    await quickLogFood(user.id, foodMemoryId, undefined, slot, date);
     revalidatePath("/history");
     revalidatePath("/settings");
     revalidatePath("/log");

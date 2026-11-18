@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { toggleFavorite, updateFoodNutrition } from "@/lib/services/history";
+import { deleteSavedFood, toggleFavorite, updateFoodNutrition } from "@/lib/services/history";
 
 const editSchema = z.object({
   foodId: z.string().uuid(),
@@ -43,4 +44,21 @@ export async function toggleFavoriteAction(foodId: string): Promise<{ ok: boolea
   revalidatePath("/settings");
   revalidatePath("/log");
   return { ok: true };
+}
+
+export async function deleteFoodAction(foodId: string): Promise<{ error: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Not signed in");
+    await deleteSavedFood(user.id, z.uuid().parse(foodId));
+  } catch {
+    return { error: "Couldn’t delete this saved food. Refresh and try again." };
+  }
+
+  revalidatePath(`/food/${foodId}`);
+  revalidatePath("/settings");
+  revalidatePath("/log");
+  revalidatePath("/history");
+  redirect("/settings#saved-foods");
 }

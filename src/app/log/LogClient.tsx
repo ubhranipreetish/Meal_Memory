@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import {
@@ -33,7 +34,7 @@ import {
 interface FeedItem {
   id: string;
   loggedAt: string;
-  timeLabel: string;
+  timeLabel: string | null;
   mealType: string | null;
   rawInput: string;
   items: { id: string; name: string; qty: number; unit: string | null; kcal: number; proteinG: number }[];
@@ -48,10 +49,14 @@ type CaptureMode = "voice" | "photo";
 type CaptureHandler = (resolved: ResolvedLog, mode: CaptureMode, photoPath?: string) => void;
 
 export function LogClient({
+  date,
+  yesterday,
   feed,
   savedFoods = [],
   suggestedMealType,
 }: {
+  date: string;
+  yesterday: boolean;
   feed: FeedItem[];
   savedFoods?: Awaited<ReturnType<typeof listSavedFoods>>;
   suggestedMealType: MealType;
@@ -73,6 +78,7 @@ export function LogClient({
   const [capturing, setCapturing] = useState(false);
   const recorderRef = useRef<{ stop: () => void } | null>(null);
   const [busy, startTransition] = useTransition();
+  const daySuffix = yesterday ? " for yesterday" : "";
 
   function beginCapture() {
     if (captureLock.current || busy) return false;
@@ -261,14 +267,14 @@ export function LogClient({
         return;
       }
       // Water-only input can be logged immediately.
-      const c = await confirmAction({ ...toConfirmPayload(r), mealType: slot, inputMode: "text" });
+      const c = await confirmAction({ ...toConfirmPayload(r), date, mealType: slot, inputMode: "text" });
       if (!c.ok) {
         setError(c.error);
       } else {
         setText("");
         setStatus(
           r.waterMl && r.items.length === 0
-            ? "Water logged 💧"
+            ? `Water logged${daySuffix} 💧`
             : `Logged to ${MEAL_LABELS[slot]} ${r.zeroAi ? "⚡ instantly from your food memory" : "✓"}`,
         );
         router.refresh();
@@ -282,6 +288,7 @@ export function LogClient({
     startTransition(async () => {
       const c = await confirmAction({
         ...toConfirmPayload(edited),
+        date,
         mealType: slot,
         photoPath: pendingPhotoPath,
         inputMode: pendingMode,
@@ -298,8 +305,8 @@ export function LogClient({
       setMealType(slot);
       setStatus(
         saved > 0
-          ? `Logged to ${MEAL_LABELS[slot]} ✓ — ${saved} new food${saved > 1 ? "s" : ""} saved to My foods`
-          : `Logged to ${MEAL_LABELS[slot]} ✓`,
+          ? `Logged to ${MEAL_LABELS[slot]}${daySuffix} ✓ — ${saved} new food${saved > 1 ? "s" : ""} saved to My foods`
+          : `Logged to ${MEAL_LABELS[slot]}${daySuffix} ✓`,
       );
       router.refresh();
     });
@@ -307,6 +314,22 @@ export function LogClient({
 
   return (
     <>
+      <nav className="section chips" aria-label="Meal log date">
+        {[false, true].map((isYesterday) => {
+          const current = yesterday === isYesterday;
+          const href = isYesterday ? "/log?day=yesterday" : "/log";
+          return (
+            <Link key={href} href={href} scroll={false}
+              className={current ? "chip selected" : "chip"}
+              aria-current={current ? "page" : undefined}
+              aria-disabled={busy || capturing}
+              onClick={(event) => {
+                if (busy || captureLock.current || current) event.preventDefault();
+              }}
+            >{isYesterday ? "Yesterday" : "Today"}</Link>
+          );
+        })}
+      </nav>
       <input
         ref={fileRef}
         type="file"
@@ -375,9 +398,9 @@ export function LogClient({
 
       {!pendingLog && (
         <div className="section row">
-          <SavedFoodPicker foods={savedFoods} meal={mealType} disabled={busy || capturing} onLogged={(name) => {
+          <SavedFoodPicker foods={savedFoods} meal={mealType} date={date} yesterday={yesterday} disabled={busy || capturing} onLogged={(name) => {
             setError(null);
-            setStatus(`${name} logged to ${MEAL_LABELS[mealType].toLowerCase()}`);
+            setStatus(`${name} logged to ${MEAL_LABELS[mealType].toLowerCase()}${yesterday ? " yesterday" : ""}`);
             router.refresh();
           }} />
           <button type="button" className="icon green shrink-0" aria-label="Add manually"
@@ -394,6 +417,7 @@ export function LogClient({
           resolved={pendingLog}
           initialSlot={mealType}
           source={pendingMode}
+          yesterday={yesterday}
           busy={busy}
           capturing={capturing}
           feedback={feedback}
@@ -414,16 +438,16 @@ export function LogClient({
       {!pendingLog && (
         <div id="manual-meal-entry" className={showManual ? "section" : undefined} hidden={!showManual}>
           {showManual && (
-            <ManualEntry busy={busy || capturing} mealType={mealType} onDone={() => {
+            <ManualEntry busy={busy || capturing} mealType={mealType} date={date} yesterday={yesterday} onDone={() => {
               setShowManual(false);
-              setStatus(`Logged to ${MEAL_LABELS[mealType]} ✓`);
+              setStatus(`Logged to ${MEAL_LABELS[mealType]}${daySuffix} ✓`);
               router.refresh();
             }} />
           )}
         </div>
       )}
 
-      {!pendingLog && <MealJournal feed={feed} busy={busy} />}
+      {!pendingLog && <MealJournal feed={feed} busy={busy} yesterday={yesterday} />}
     </>
   );
 }
@@ -536,6 +560,7 @@ function ReviewCard({
   resolved,
   initialSlot,
   source,
+  yesterday,
   busy,
   capturing,
   feedback,
@@ -549,6 +574,7 @@ function ReviewCard({
   resolved: ResolvedLog;
   initialSlot: MealType;
   source: "text" | "voice" | "photo";
+  yesterday: boolean;
   busy: boolean;
   capturing: boolean;
   feedback: ReactNode;
@@ -864,7 +890,7 @@ function ReviewCard({
           Cancel
         </button>
         <button className="primary flex-1" onClick={() => onConfirm({ ...resolved, raw, waterMl, mealType: slot, items }, slot)} disabled={busy || capturing || !valid}>
-          {busy ? "Saving…" : `Log ${MEAL_LABELS[slot].toLowerCase()}`} <Check size={18} />
+          {busy ? "Saving…" : `Log ${MEAL_LABELS[slot].toLowerCase()}${yesterday ? " for yesterday" : ""}`} <Check size={18} />
         </button>
       </div>
     </section>
@@ -874,10 +900,10 @@ function ReviewCard({
 /* ────────────────────────────────────────────────────────────────────────── */
 
 /** Manual fallback — AI down must never block logging (RULES.md #13). */
-function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: MealType; onDone: () => void }) {
+function ManualEntry({ busy, mealType, date, yesterday, onDone }: { busy: boolean; mealType: MealType; date: string; yesterday: boolean; onDone: () => void }) {
   const [f, setF] = useState({ name: "", qty: "1", unit: "piece", kcal: "", proteinG: "0", carbsG: "0", fatG: "0", fiberG: "0", save: true });
   const [err, setErr] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [saving, startTransition] = useTransition();
 
   function saveEntry() {
     setErr(null);
@@ -889,6 +915,7 @@ function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: Meal
     }
     startTransition(async () => {
       const res = await confirmAction({
+        date,
         raw: `${f.qty} ${f.unit} ${f.name} (manual)`,
         mealType,
         items: [
@@ -959,8 +986,8 @@ function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: Meal
         Save to my foods
       </label>
       {err && <p className="small danger">{err}</p>}
-      <button className="primary" onClick={saveEntry} disabled={busy}>
-        Log {MEAL_LABELS[mealType].toLowerCase()}
+      <button className="primary" onClick={saveEntry} disabled={busy || saving}>
+        {saving ? "Saving…" : `Log ${MEAL_LABELS[mealType].toLowerCase()}${yesterday ? " for yesterday" : ""}`}
       </button>
     </div>
   );
@@ -968,8 +995,8 @@ function ManualEntry({ busy, mealType, onDone }: { busy: boolean; mealType: Meal
 
 /* ────────────────────────────────────────────────────────────────────────── */
 
-/** Review and correct the meals already logged today. */
-function MealJournal({ feed, busy }: { feed: FeedItem[]; busy: boolean }) {
+/** Review and correct the meals for the selected day. */
+function MealJournal({ feed, busy, yesterday }: { feed: FeedItem[]; busy: boolean; yesterday: boolean }) {
   const router = useRouter();
   const [changing, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -994,7 +1021,7 @@ function MealJournal({ feed, busy }: { feed: FeedItem[]; busy: boolean }) {
     <section className="section" aria-label="Meal journal">
       <div className="row between flex-wrap">
         <h2>Meal journal</h2>
-        {feed.length > 0 && <span className="chip">{Math.round(total).toLocaleString("en-IN")} kcal today</span>}
+        {feed.length > 0 && <span className="chip">{Math.round(total).toLocaleString("en-IN")} kcal {yesterday ? "yesterday" : "today"}</span>}
       </div>
       {error && <p role="alert" className="small danger mt-2">{error}</p>}
       {feed.length === 0 && (
@@ -1011,7 +1038,7 @@ function MealJournal({ feed, busy }: { feed: FeedItem[]; busy: boolean }) {
             <div className="row between">
               <div>
                 <p className="eyebrow green">{mealLabel(meal.mealType)}</p>
-                <time className="small muted" dateTime={meal.loggedAt}>{meal.timeLabel}</time>
+                {meal.timeLabel && <time className="small muted" dateTime={meal.loggedAt}>{meal.timeLabel}</time>}
               </div>
               <div className="text-right">
                 <p className="font-semibold">{Math.round(calories)} kcal</p>

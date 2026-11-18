@@ -167,6 +167,7 @@ export const confirmItemSchema = z.object({
 });
 
 export const confirmLogSchema = z.object({
+  date: z.iso.date().optional(),
   raw: z.string().trim().min(1).max(2000),
   mealType: z.enum(MEAL_TYPES),
   waterMl: z.number().min(0).max(10_000).optional(),

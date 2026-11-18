@@ -27,7 +27,7 @@ import {
   type ResolvedItem,
   type ResolvedLog,
 } from "@/types/food";
-import { dayBounds, hourInTimeZone } from "@/lib/time";
+import { dateKey, dayBounds, hourInTimeZone, mealLogDate } from "@/lib/time";
 
 /**
  * Fuzzy-match ceiling: cosine distance must be below this AND the candidate
@@ -269,6 +269,7 @@ export async function resolveParsedItems(
 export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
   const db = getDb();
   const now = new Date();
+  const loggedAt = mealLogDate(input.date, now);
   const pendingEmbeddings: { id: string; name: string }[] = [];
 
   const result = await db.transaction(async (tx) => {
@@ -357,7 +358,7 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
         .insert(schema.mealLogs)
         .values({
           userId,
-          loggedAt: now,
+          loggedAt,
           mealType: input.mealType,
           rawInput: input.raw,
           inputMode: input.inputMode,
@@ -387,7 +388,7 @@ export async function confirmAndLog(userId: string, input: ConfirmLogInput) {
 
     // 3. Water.
     if (input.waterMl && input.waterMl > 0) {
-      await tx.insert(schema.waterLogs).values({ userId, loggedAt: now, ml: Math.round(input.waterMl) });
+      await tx.insert(schema.waterLogs).values({ userId, loggedAt, ml: Math.round(input.waterMl) });
     }
 
     return { mealLogId };
@@ -440,9 +441,8 @@ export async function getTodayMealTotals(userId: string, now = new Date()) {
   };
 }
 
-export async function getTodayTotals(userId: string) {
+export async function getTodayTotals(userId: string, now = new Date()) {
   const db = getDb();
-  const now = new Date();
   const { start, end } = dayBounds(now);
   const [meals, [water]] = await Promise.all([
     getTodayMealTotals(userId, now),
@@ -460,10 +460,10 @@ export async function getTodayTotals(userId: string) {
   return { ...meals, waterMl: water.ml };
 }
 
-/** Today's meal logs with items, newest first (for the /log feed). */
-export async function getTodayFeed(userId: string) {
+/** Meal logs for the selected local day, newest first. */
+export async function getDailyFeed(userId: string, date: Date) {
   const db = getDb();
-  const { start, end } = dayBounds();
+  const { key, start, end } = dayBounds(date);
 
   const logs = await db
     .select()
@@ -490,6 +490,7 @@ export async function getTodayFeed(userId: string) {
   return logs.map((l) => ({
     id: l.id,
     loggedAt: l.loggedAt,
+    backdated: dateKey(l.createdAt) !== key,
     mealType: l.mealType,
     rawInput: l.rawInput,
     items: items

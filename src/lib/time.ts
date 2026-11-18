@@ -91,6 +91,15 @@ export function dayBounds(date = new Date(), timeZone = appTimeZone()) {
   };
 }
 
+export function mealLogDate(date: string | undefined, now = new Date(), timeZone = appTimeZone()) {
+  const today = dayBounds(now, timeZone);
+  if (date === undefined || date === today.key) return now;
+
+  const yesterday = new Date(today.start.getTime() - 1);
+  if (date === dateKey(yesterday, timeZone)) return yesterday;
+  throw new Error("You can only log for today or yesterday. Refresh Eat to pick a date.");
+}
+
 export function hourInTimeZone(date = new Date(), timeZone = appTimeZone()): number {
   const { hour, minute } = partsInTimeZone(date, timeZone);
   return hour + minute / 60;
