@@ -16,7 +16,7 @@ import {
   type ResolvedItem,
   type ResolvedLog,
 } from "@/types/food";
-import { ArrowUpRight, Camera, Check, Mic, Plus, Square, Trash2, X } from "lucide-react";
+import { ArrowUpRight, Camera, Check, LoaderCircle, Mic, Plus, Square, Trash2, X } from "lucide-react";
 import { DishMacroFields } from "@/components/DishMacroFields";
 import { SavedFoodPicker } from "./SavedFoodPicker";
 import type { listSavedFoods } from "@/lib/services/history";
@@ -63,8 +63,8 @@ export function LogClient({
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const photoHandlerRef = useRef<CaptureHandler | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const fileHandlerRef = useRef<CaptureHandler | null>(null);
   const captureLock = useRef(false);
   const [mealType, setMealType] = useState<MealType>(suggestedMealType);
   const [text, setText] = useState("");
@@ -78,6 +78,7 @@ export function LogClient({
   const [capturing, setCapturing] = useState(false);
   const recorderRef = useRef<{ stop: () => void } | null>(null);
   const [busy, startTransition] = useTransition();
+  const [switchingDay, startDaySwitch] = useTransition();
   const daySuffix = yesterday ? " for yesterday" : "";
 
   function beginCapture() {
@@ -223,8 +224,17 @@ export function LogClient({
   };
 
   function pickPhoto(onCapture: CaptureHandler) {
-    photoHandlerRef.current = onCapture;
-    fileRef.current?.click();
+    if (busy || captureLock.current) return;
+    fileHandlerRef.current = onCapture;
+    photoInputRef.current?.click();
+  }
+
+  function readPhotoInput(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    const onCapture = fileHandlerRef.current;
+    fileHandlerRef.current = null;
+    input.value = "";
+    if (file && onCapture) void onPhotoPicked(file, onCapture);
   }
 
   const feedback = (
@@ -314,7 +324,7 @@ export function LogClient({
 
   return (
     <>
-      <nav className="section chips" aria-label="Meal log date">
+      <nav className="section chips items-center" aria-label="Meal log date">
         {[false, true].map((isYesterday) => {
           const current = yesterday === isYesterday;
           const href = isYesterday ? "/log?day=yesterday" : "/log";
@@ -322,132 +332,136 @@ export function LogClient({
             <Link key={href} href={href} scroll={false}
               className={current ? "chip selected" : "chip"}
               aria-current={current ? "page" : undefined}
-              aria-disabled={busy || capturing}
-              onClick={(event) => {
-                if (busy || captureLock.current || current) event.preventDefault();
+              aria-disabled={busy || capturing || switchingDay}
+              onNavigate={(event) => {
+                event.preventDefault();
+                if (busy || captureLock.current || switchingDay || current) return;
+                startDaySwitch(() => router.push(href, { scroll: false }));
               }}
             >{isYesterday ? "Yesterday" : "Today"}</Link>
           );
         })}
+        <span role="status" className="row small green">
+          {switchingDay && <>
+            <LoaderCircle size={16} className="shrink-0 motion-safe:animate-spin" aria-hidden="true" />
+            {yesterday ? "Loading today…" : "Loading yesterday…"}
+          </>}
+        </span>
       </nav>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          const onCapture = photoHandlerRef.current;
-          photoHandlerRef.current = null;
-          event.currentTarget.value = "";
-          if (file && onCapture) void onPhotoPicked(file, onCapture);
-        }}
-      />
-      {/* ── Which slot of the day ─────────────────────────────────────── */}
-      {!pendingLog && (
-        <div className="section chips">
-          {MEAL_TYPES.filter((m) => m !== "post_workout" || m === mealType).map((m) => (
-            <button
-              key={m}
-              type="button"
-              aria-pressed={mealType === m}
-              onClick={() => setMealType(m)}
-              className={"chip " + (mealType === m ? "selected" : "")}
-            >
-              {MEAL_LABELS[m]}
-            </button>
-          ))}
-        </div>
-      )}
-      {!pendingLog && (
-        <form
-          className="composer"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submitUtterance(text);
-          }}
-        >
-          <textarea
-            ref={inputRef}
-            aria-label="What did you eat?"
-            placeholder={'What did you eat?\ne.g. "2 aloo parathas and a glass of milk"'}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            disabled={busy}
-          />
-          <div className="row between">
-            <div className="row">
-              <CaptureButtons
-                busy={busy}
-                capturing={capturing}
-                recording={recording}
-                onVoice={() => void startVoice(openCapturedReview)}
-                onPhoto={() => pickPhoto(openCapturedReview)}
-              />
-            </div>
-            <button className="primary" disabled={busy || capturing || !text.trim()}>
-              {busy ? "Reading…" : "Log meal"}
-              <ArrowUpRight size={18} />
-            </button>
-          </div>
-        </form>
-      )}
-
-      {!pendingLog && feedback}
-
-      {!pendingLog && (
-        <div className="section row">
-          <SavedFoodPicker foods={savedFoods} meal={mealType} date={date} yesterday={yesterday} disabled={busy || capturing} onLogged={(name) => {
-            setError(null);
-            setStatus(`${name} logged to ${MEAL_LABELS[mealType].toLowerCase()}${yesterday ? " yesterday" : ""}`);
-            router.refresh();
-          }} />
-          <button type="button" className="icon green shrink-0" aria-label="Add manually"
-            aria-expanded={showManual} aria-controls="manual-meal-entry" title="Add manually"
-            disabled={busy || capturing} onClick={() => setShowManual((shown) => !shown)}>
-            <Plus size={22} aria-hidden="true" />
-          </button>
-        </div>
-      )}
-
-      {pendingLog && (
-        <ReviewCard
-          key={pendingLog.raw + pendingLog.items.length}
-          resolved={pendingLog}
-          initialSlot={mealType}
-          source={pendingMode}
-          yesterday={yesterday}
-          busy={busy}
-          capturing={capturing}
-          feedback={feedback}
-          recording={recording}
-          onVoice={startVoice}
-          onPhoto={pickPhoto}
-          onAttachPhoto={(path) => setPendingPhotoPath((current) => current ?? path)}
-          onConfirm={confirmPending}
-          onCancel={() => {
-            setPendingLog(null);
-            setPendingPhotoPath(undefined);
-            setPendingMode("text");
-            setError(null);
-          }}
+      <div aria-busy={switchingDay} inert={switchingDay} className={switchingDay ? "opacity-60" : undefined}>
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(event) => readPhotoInput(event.currentTarget)}
         />
-      )}
+        {/* ── Which slot of the day ─────────────────────────────────────── */}
+        {!pendingLog && (
+          <div className="section chips">
+            {MEAL_TYPES.filter((m) => m !== "post_workout" || m === mealType).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mealType === m}
+                onClick={() => setMealType(m)}
+                className={"chip " + (mealType === m ? "selected" : "")}
+              >
+                {MEAL_LABELS[m]}
+              </button>
+            ))}
+          </div>
+        )}
+        {!pendingLog && (
+          <form
+            className="composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitUtterance(text);
+            }}
+          >
+            <textarea
+              ref={inputRef}
+              aria-label="What did you eat?"
+              placeholder={'What did you eat?\ne.g. "2 aloo parathas and a glass of milk"'}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              disabled={busy}
+            />
+            <div className="row between flex-wrap">
+              <div className="row flex-wrap">
+                <CaptureButtons
+                  busy={busy}
+                  capturing={capturing}
+                  recording={recording}
+                  onVoice={() => void startVoice(openCapturedReview)}
+                  onPhoto={() => pickPhoto(openCapturedReview)}
+                />
+                <button type="button" className={`icon shrink-0${showManual ? " green" : ""}`} aria-label="Add manually"
+                  aria-expanded={showManual} aria-controls="manual-meal-entry" title="Add manually"
+                  disabled={busy || capturing} onClick={() => setShowManual((shown) => !shown)}>
+                  <Plus size={20} aria-hidden="true" />
+                </button>
+              </div>
+              <button className="primary ml-auto" disabled={busy || capturing || !text.trim()}>
+                {busy ? "Reading…" : "Log meal"}
+                <ArrowUpRight size={18} />
+              </button>
+            </div>
+          </form>
+        )}
 
-      {!pendingLog && (
-        <div id="manual-meal-entry" className={showManual ? "section" : undefined} hidden={!showManual}>
-          {showManual && (
-            <ManualEntry busy={busy || capturing} mealType={mealType} date={date} yesterday={yesterday} onDone={() => {
-              setShowManual(false);
-              setStatus(`Logged to ${MEAL_LABELS[mealType]}${daySuffix} ✓`);
+        {!pendingLog && feedback}
+
+        {!pendingLog && (
+          <div id="manual-meal-entry" className="card mt-3" hidden={!showManual}>
+            {showManual && (
+              <ManualEntry busy={busy || capturing} mealType={mealType} date={date} yesterday={yesterday} onDone={() => {
+                setShowManual(false);
+                setStatus(`Logged to ${MEAL_LABELS[mealType]}${daySuffix} ✓`);
+                router.refresh();
+              }} />
+            )}
+          </div>
+        )}
+
+        {!pendingLog && (
+          <div className="section row">
+            <SavedFoodPicker foods={savedFoods} meal={mealType} date={date} yesterday={yesterday} disabled={busy || capturing} onLogged={(name) => {
+              setError(null);
+              setStatus(`${name} logged to ${MEAL_LABELS[mealType].toLowerCase()}${yesterday ? " yesterday" : ""}`);
               router.refresh();
             }} />
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {!pendingLog && <MealJournal feed={feed} busy={busy} yesterday={yesterday} />}
+        {pendingLog && (
+          <ReviewCard
+            key={pendingLog.raw + pendingLog.items.length}
+            resolved={pendingLog}
+            initialSlot={mealType}
+            source={pendingMode}
+            yesterday={yesterday}
+            busy={busy}
+            capturing={capturing}
+            feedback={feedback}
+            recording={recording}
+            onVoice={startVoice}
+            onPhoto={pickPhoto}
+            onAttachPhoto={(path) => setPendingPhotoPath((current) => current ?? path)}
+            onConfirm={confirmPending}
+            onCancel={() => {
+              setPendingLog(null);
+              setPendingPhotoPath(undefined);
+              setPendingMode("text");
+              setError(null);
+            }}
+          />
+        )}
+
+        {!pendingLog && <MealJournal feed={feed} busy={busy} yesterday={yesterday} />}
+      </div>
     </>
   );
 }
@@ -496,7 +510,7 @@ function MealSelect({ value, onChange, disabled, label = "Meal" }: {
   label?: string;
 }) {
   return (
-    <label className="row small muted">
+    <label className="row small muted min-w-0">
       Meal
       <select className="field meal-select" aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as MealType)}>
         {!MEAL_TYPES.includes(value as MealType) && <option value={value} disabled>Choose a meal</option>}
@@ -573,7 +587,7 @@ function ReviewCard({
 }: {
   resolved: ResolvedLog;
   initialSlot: MealType;
-  source: "text" | "voice" | "photo";
+  source: "text" | CaptureMode;
   yesterday: boolean;
   busy: boolean;
   capturing: boolean;
@@ -730,7 +744,7 @@ function ReviewCard({
   return (
     <section className="meal-review section" aria-label="Review meal">
       <div className="row between flex-wrap">
-        <h2>{source === "voice" ? "Review recording" : source === "photo" ? "Review photo" : "Review meal"}</h2>
+        <h2>{{ voice: "Review recording", photo: "Review photo", text: "Review meal" }[source]}</h2>
         <MealSelect value={slot} onChange={setSlot} />
       </div>
 

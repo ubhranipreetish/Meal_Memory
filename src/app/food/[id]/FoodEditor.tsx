@@ -96,15 +96,18 @@ export function FoodEditor({ food }: { food: Food }) {
       </div>
 
       {error && <p className="small danger mt-2">{error}</p>}
-      <button className="primary mt-4" onClick={save} disabled={pending || deleting || !dirty} style={{ opacity: pending || !dirty ? 0.4 : 1 }}>
-        {saved ? "Saved ✓" : pending ? "Saving…" : "Save changes"}
-      </button>
-      <button type="button" className="secondary danger mt-4" disabled={pending || deleting} onClick={() => {
-        setDeleteError(null);
-        deleteDialog.current?.showModal();
-      }}>
-        <Trash2 size={17} aria-hidden="true" /> Delete saved food
-      </button>
+      <div className="row between mt-4">
+        <button className="primary" onClick={save} disabled={pending || deleting || !dirty} style={{ opacity: pending || !dirty ? 0.4 : 1 }}>
+          {saved ? "Saved ✓" : pending ? "Saving…" : "Save changes"}
+        </button>
+        <button type="button" className="icon shrink-0" aria-label="Delete saved food" title="Delete saved food"
+          disabled={pending || deleting} onClick={() => {
+            setDeleteError(null);
+            deleteDialog.current?.showModal();
+          }}>
+          <Trash2 size={18} className="danger" aria-hidden="true" />
+        </button>
+      </div>
       <dialog ref={deleteDialog} className="card food-dialog" aria-labelledby="delete-food-title" onCancel={(event) => {
         if (deleting) event.preventDefault();
       }}>

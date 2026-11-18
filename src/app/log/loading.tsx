@@ -1,4 +1,4 @@
-import { Mic, Camera, ArrowUpRight } from "lucide-react";
+import { Mic, Camera, ArrowUpRight, Plus } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 
 export default function LogLoading() {
@@ -34,16 +34,19 @@ export default function LogLoading() {
           placeholder={'What did you eat?\ne.g. "2 aloo parathas and a glass of milk"'}
           disabled
         />
-        <div className="row between">
-          <div className="row">
+        <div className="row between flex-wrap">
+          <div className="row flex-wrap">
             <button type="button" className="icon" disabled aria-label="Record voice">
               <Mic size={18} />
             </button>
             <button type="button" className="icon" disabled aria-label="Take photo">
               <Camera size={18} />
             </button>
+            <button type="button" className="icon" disabled aria-label="Add manually">
+              <Plus size={18} />
+            </button>
           </div>
-          <button className="primary" disabled>
+          <button className="primary ml-auto" disabled>
             Log meal <ArrowUpRight size={18} />
           </button>
         </div>
