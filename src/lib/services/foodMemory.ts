@@ -509,8 +509,8 @@ export async function getDailyFeed(userId: string, date: Date) {
         name: r.item.name ?? r.foodName ?? "Food",
         qty: num(r.item.qty),
         unit: r.item.unit,
-        kcal: Math.round(num(r.item.kcal)),
-        proteinG: Math.round(num(r.item.proteinG)),
+        kcal: num(r.item.kcal),
+        proteinG: num(r.item.proteinG),
         foodMemoryId: r.item.foodMemoryId,
       })),
   }));

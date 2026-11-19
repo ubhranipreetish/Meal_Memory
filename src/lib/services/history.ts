@@ -104,10 +104,11 @@ export async function listSavedFoods(userId: string) {
   const db = getDb();
   const rows = await db.execute<{
     id: string; name: string; unit: string; serving_qty: string; kcal: string | null;
+    protein_g: string | null; carbs_g: string | null; fat_g: string | null; fiber_g: string | null;
     is_favorite: boolean; meal_type: string | null;
   }>(sql`
     select f.id, f.canonical_name as name, f.serving_unit as unit, f.serving_qty,
-           f.kcal, f.is_favorite, latest.meal_type
+           f.kcal, f.protein_g, f.carbs_g, f.fat_g, f.fiber_g, f.is_favorite, latest.meal_type
     from food_memory f
     left join lateral (
       select m.meal_type
@@ -126,6 +127,13 @@ export async function listSavedFoods(userId: string) {
     unit: food.unit,
     servingQty: Number(food.serving_qty) || 1,
     kcal: Math.round(num(food.kcal)),
+    perUnit: {
+      kcal: num(food.kcal),
+      proteinG: num(food.protein_g),
+      carbsG: num(food.carbs_g),
+      fatG: num(food.fat_g),
+      fiberG: num(food.fiber_g),
+    },
     isFavorite: food.is_favorite,
     mealType: food.meal_type,
   }));

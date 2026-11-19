@@ -19,7 +19,7 @@ import {
 import { ArrowUpRight, Camera, Check, LoaderCircle, Mic, Plus, Square, Trash2, X } from "lucide-react";
 import { DishMacroFields } from "@/components/DishMacroFields";
 import { SavedFoodPicker } from "./SavedFoodPicker";
-import type { listSavedFoods } from "@/lib/services/history";
+import type { SavedFood } from "@/components/SavedFoodsList";
 import { VOICE_SAMPLE_RATE, downsample, encodeWav, normalize, toBase64, toMono } from "@/lib/audio/wav";
 import {
   confirmAction,
@@ -58,7 +58,7 @@ export function LogClient({
   date: string;
   yesterday: boolean;
   feed: FeedItem[];
-  savedFoods?: Awaited<ReturnType<typeof listSavedFoods>>;
+  savedFoods?: SavedFood[];
   suggestedMealType: MealType;
 }) {
   const router = useRouter();
@@ -440,6 +440,7 @@ export function LogClient({
           <ReviewCard
             key={pendingLog.raw + pendingLog.items.length}
             resolved={pendingLog}
+            savedFoods={savedFoods}
             initialSlot={mealType}
             source={pendingMode}
             yesterday={yesterday}
@@ -572,6 +573,7 @@ const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
  */
 function ReviewCard({
   resolved,
+  savedFoods,
   initialSlot,
   source,
   yesterday,
@@ -586,6 +588,7 @@ function ReviewCard({
   onCancel,
 }: {
   resolved: ResolvedLog;
+  savedFoods: SavedFood[];
   initialSlot: MealType;
   source: "text" | CaptureMode;
   yesterday: boolean;
@@ -694,7 +697,7 @@ function ReviewCard({
     setShowAddOptions(false);
   };
 
-  const appendCapture: CaptureHandler = (addition, _mode, photoPath) => {
+  function appendToDraft(addition: Pick<ResolvedLog, "raw" | "items" | "waterMl">, photoPath?: string) {
     if (items.length + addition.items.length > MAX_REVIEW_ITEMS) {
       setAdditionError(`A meal can have up to ${MAX_REVIEW_ITEMS} dishes. Remove a dish or log the rest separately.`);
       return;
@@ -717,7 +720,26 @@ function ReviewCard({
     if (photoPath) onAttachPhoto(photoPath);
     setAdditionError(null);
     setShowAddOptions(false);
-  };
+  }
+
+  const appendCapture: CaptureHandler = (addition, _mode, photoPath) => appendToDraft(addition, photoPath);
+
+  function appendSavedFood(food: SavedFood) {
+    appendToDraft({
+      raw: `${food.servingQty} ${food.unit} ${food.name}`,
+      items: [{
+        name: food.name,
+        typedName: food.name,
+        qty: food.servingQty,
+        unit: normalizeUnit(food.unit),
+        perQty: food.servingQty,
+        status: "known",
+        foodMemoryId: food.id,
+        memoryUnit: food.unit,
+        perUnit: food.perUnit,
+      }],
+    });
+  }
 
   const totals = useMemo(
     () =>
@@ -876,6 +898,13 @@ function ReviewCard({
             <button type="button" className="secondary" disabled={busy || capturing} onClick={addItem}>
               <Plus size={18} aria-hidden="true" /> Manual
             </button>
+            <SavedFoodPicker
+              foods={savedFoods}
+              meal={slot}
+              yesterday={yesterday}
+              disabled={busy || capturing || items.length >= MAX_REVIEW_ITEMS}
+              onAddToDraft={appendSavedFood}
+            />
           </div>
         )}
       </div>
@@ -1014,7 +1043,13 @@ function MealJournal({ feed, busy, yesterday }: { feed: FeedItem[]; busy: boolea
   const router = useRouter();
   const [changing, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const total = feed.reduce((sum, meal) => sum + meal.items.reduce((kcal, item) => kcal + item.kcal, 0), 0);
+  const bySlot = new Map<string | null, FeedItem[]>();
+  for (const entry of feed) {
+    const group = bySlot.get(entry.mealType);
+    if (group) group.push(entry);
+    else bySlot.set(entry.mealType, [entry]);
+  }
+  const total = feed.flatMap((entry) => entry.items).reduce((sum, item) => sum + item.kcal, 0);
 
   const move = (id: string, slot: string) =>
     startTransition(async () => {
@@ -1044,38 +1079,53 @@ function MealJournal({ feed, busy, yesterday }: { feed: FeedItem[]; busy: boolea
           <p className="small muted mt-1">Log a meal above and it will appear here.</p>
         </div>
       )}
-      {feed.map((meal) => {
-        const calories = meal.items.reduce((sum, item) => sum + item.kcal, 0);
-        const protein = meal.items.reduce((sum, item) => sum + item.proteinG, 0);
+      {Array.from(bySlot, ([slot, entries]) => {
+        const items = entries.flatMap((entry) => entry.items);
+        const calories = items.reduce((sum, item) => sum + item.kcal, 0);
+        const protein = items.reduce((sum, item) => sum + item.proteinG, 0);
+        const [first] = entries;
+        const multiple = entries.length > 1;
         return (
-          <article className="card mt-3" key={meal.id}>
+          <article className="card mt-3" key={slot ?? "uncategorized"}>
             <div className="row between">
               <div>
-                <p className="eyebrow green">{mealLabel(meal.mealType)}</p>
-                {meal.timeLabel && <time className="small muted" dateTime={meal.loggedAt}>{meal.timeLabel}</time>}
+                <h3 className="eyebrow green">{mealLabel(slot)}</h3>
+                {!multiple && first.timeLabel && <time className="small muted" dateTime={first.loggedAt}>{first.timeLabel}</time>}
               </div>
               <div className="text-right">
                 <p className="font-semibold">{Math.round(calories)} kcal</p>
                 <p className="small muted">{fmt(protein)} g protein</p>
               </div>
             </div>
-            {meal.items.length ? (
-              <ul className="journal-dishes mt-3">
-                {meal.items.map((item) => (
+            <ul className="journal-dishes mt-3">
+              {entries.flatMap((entry) => entry.items.length
+                ? entry.items.map((item) => (
                   <li className="row between small" key={item.id}>
                     <strong>{item.name}</strong>
                     <span className="muted shrink-0">{fmt(item.qty)} {item.unit}</span>
                   </li>
-                ))}
-              </ul>
-            ) : <p className="small mt-3">{meal.rawInput}</p>}
+                ))
+                : <li className="small" key={entry.id}>{entry.rawInput}</li>)}
+            </ul>
             <details className="journal-actions mt-2">
-              <summary className="small muted">Edit log</summary>
-              <div className="row between flex-wrap">
-                <MealSelect label={`Meal for ${meal.rawInput}`} value={meal.mealType ?? ""} disabled={busy || changing} onChange={(slot) => move(meal.id, slot)} />
-                <button type="button" className="icon danger shrink-0" aria-label={`Remove log for ${meal.rawInput}`} disabled={busy || changing} onClick={() => remove(meal.id)}>
-                  <Trash2 size={17} aria-hidden="true" />
-                </button>
+              <summary className="small muted">{multiple ? "Edit logs" : "Edit log"}</summary>
+              <div className="spaced">
+                {entries.map((entry) => {
+                  const name = entry.items.map((item) => item.name).join(", ") || entry.rawInput;
+                  return (
+                    <div key={entry.id}>
+                      {multiple && <p className="small muted mb-2">
+                        <strong>{name}</strong>{entry.timeLabel && ` · ${entry.timeLabel}`}
+                      </p>}
+                      <div className="row between flex-wrap">
+                        <MealSelect label={`Meal for ${name}`} value={entry.mealType ?? ""} disabled={busy || changing} onChange={(nextSlot) => move(entry.id, nextSlot)} />
+                        <button type="button" className="icon danger shrink-0" aria-label={`Remove log for ${name}`} disabled={busy || changing} onClick={() => remove(entry.id)}>
+                          <Trash2 size={17} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </details>
           </article>
